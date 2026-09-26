@@ -42,7 +42,7 @@ def command_loop():
                         cmd = json.loads(line)
                     except ValueError:
                         continue
-                    if isinstance(cmd, dict) and cmd.get("action") in ("playIndex", "seek", "shuffle", "refresh"):
+                    if isinstance(cmd, dict) and cmd.get("action") in ("playIndex", "seek", "shuffle", "shuffleLibrary", "refresh"):
                         cmd["type"] = "command"
                         send(cmd)
         except OSError:

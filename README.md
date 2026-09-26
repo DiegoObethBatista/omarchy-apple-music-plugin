@@ -7,6 +7,7 @@ dedicated Chromium web app and controls it from the Omarchy bar over MPRIS.
   separate MPRIS player, never confused with Brave/YouTube tabs
 - Widevine DRM works (Chromium ships it), sign in once with your Apple ID
 - Artwork, title/artist/album, seek bar, shuffle / prev / play-pause / next, show / quit
+- **Library mix** (󰒝): random mix from your whole library — starts in ~2 s
 - Accurate per-track time and length (from MusicKit, not Chromium's MPRIS clock)
 - **Previous / Up next** list from the real Apple Music queue (incl. autoplay);
   click any upcoming track to jump to it
@@ -53,7 +54,8 @@ omarchy-shell apple-music previous
 omarchy-shell apple-music status   # JSON, includes previous/next
 omarchy-shell apple-music queue    # JSON: previous, current, next, upcoming[]
 omarchy-shell apple-music playIndex 7   # jump to queue index
-omarchy-shell apple-music shuffle       # toggle; prints on/off
+omarchy-shell apple-music shuffleLibrary   # random mix of whole library
+omarchy-shell apple-music shuffle       # toggle queue shuffle; prints on/off
 omarchy-shell apple-music setShuffle true
 omarchy-shell apple-music seek 90       # seconds into current track
 omarchy-shell apple-music quit
@@ -63,7 +65,7 @@ omarchy-shell apple-music quit
 
 `bin/apple-music` launches or focuses the app; `--pid` prints the main PID,
 `--quit` closes it, `--queue` prints the queue JSON, `--play-index N` jumps
-to a queue entry, `--shuffle [on|off|toggle]`, `--seek SECONDS`. Override the profile dir with `APPLE_MUSIC_DATA_DIR`.
+to a queue entry, `--shuffle [on|off|toggle]`, `--shuffle-library`, `--seek SECONDS`. Override the profile dir with `APPLE_MUSIC_DATA_DIR`.
 
 ## How it works
 
@@ -78,7 +80,14 @@ inside the page and sends it over Chrome native messaging to
 `bin/apple-music-bridge`, which writes
 `$XDG_RUNTIME_DIR/omarchy-apple-music/queue-<PID>.json` and relays jump commands
 from the `commands-<PID>` FIFO. The native-host manifest is written into the
-dedicated profile, so your normal Chromium profile is untouched. Existing
+dedicated profile, so your normal Chromium profile is untouched. Why a separate library mix: the web player only loads ~50 songs of the
+alphabetical "Songs" list into the queue, so plain shuffle only reorders
+those. The mix samples 40 random spots across the whole library instead.
+
+The launcher passes `--autoplay-policy=no-user-gesture-required` so bar
+buttons can start playback without clicking inside the window first.
+
+Existing
 Apple Music windows need one restart after updating to pick up the extension.
 
 ## License

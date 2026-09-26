@@ -21,6 +21,38 @@
   let mk = null;
   let last = "";
 
+  // Random mix from the WHOLE library. Apple Music web only loads ~50 songs of
+  // "Songs" into the queue at a time (alphabetical), so shuffleMode alone just
+  // reorders those — every song starts with the same letter. Instead: pick
+  // random pages across the library, dedupe, Fisher-Yates, start with the first
+  // 25 (fast), append the rest in the background.
+  let mixing = false;
+  async function shuffleLibrary() {
+    if (mixing) return;           // a mix is already being built
+    mixing = true;
+    try { await buildMix(); } finally { mixing = false; }
+  }
+  async function buildMix() {
+    const PAGE = 5, PAGES = 40, FIRST = 25;   // many tiny pages = no alphabetical clusters
+    const head = await mk.api.music("/v1/me/library/songs", { limit: 1 });
+    const total = (head.data.meta && head.data.meta.total) || 0;
+    if (total <= 0) throw new Error("empty library");
+    const offsets = new Set();
+    const want = Math.min(PAGES, Math.ceil(total / PAGE));
+    while (offsets.size < want) offsets.add(Math.floor(Math.random() * Math.max(1, total - PAGE + 1)));
+    const pages = await Promise.all([...offsets].map(o =>
+      mk.api.music("/v1/me/library/songs", { limit: PAGE, offset: o }).catch(() => null)));
+    const ids = [...new Set(pages.filter(Boolean).flatMap(p => p.data.data.map(s => s.id)))];
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    mk.shuffleMode = 0;   // already random; avoid a second reshuffle
+    await mk.setQueue({ songs: ids.slice(0, FIRST), startPlaying: true });
+    publish(true);
+    if (ids.length > FIRST) await mk.playLater({ songs: ids.slice(FIRST) });
+  }
+
   function snapshot() {
     const q = mk.queue;
     const pos = q.position;
@@ -87,6 +119,8 @@
       if (d.action === "playIndex" && Number.isInteger(d.index)) {
         await withTimeout(mk.changeToMediaAtIndex(d.index));
         if (!mk.isPlaying) await withTimeout(mk.play());
+      } else if (d.action === "shuffleLibrary") {
+        await Promise.race([shuffleLibrary(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 30000))]);
       } else if (d.action === "shuffle") {
         // MusicKit: shuffleMode 0 = off, 1 = songs. Chromium's MPRIS has no Shuffle.
         const on = typeof d.on === "boolean" ? d.on : mk.shuffleMode !== 1;

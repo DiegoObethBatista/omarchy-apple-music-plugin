@@ -41,6 +41,13 @@ case "${1:-}" in
     [[ -p $fifo ]] || exit 1
     timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"shuffle\"$arg}" "$fifo"
     exit $? ;;
+  --shuffle-library)
+    # Random mix from the whole library (starts playing).
+    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
+    fifo="${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/commands-$pid"
+    [[ -p $fifo ]] || exit 1
+    timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ '{"action":"shuffleLibrary"}' "$fifo"
+    exit $? ;;
   --queue)
     pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
     cat "${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/queue-$pid.json" 2>/dev/null
@@ -74,6 +81,7 @@ exec setsid uwsm-app -- chromium \
   --user-data-dir="$DATA_DIR" \
   --app="$URL" \
   --load-extension="$PLUGIN_DIR/extension" \
+  --autoplay-policy=no-user-gesture-required \
   --disable-features=DisableLoadExtensionCommandLineSwitch \
   --ozone-platform-hint=auto \
   --enable-features=HardwareMediaKeyHandling \

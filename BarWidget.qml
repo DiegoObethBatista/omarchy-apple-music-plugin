@@ -236,6 +236,17 @@ BarWidget {
           opacity: !enabled ? 0.4 : (root.am.shuffle ? 1.0 : 0.6)
           onClicked: root.am.toggleShuffle()
         }
+        // Random mix from the whole library (the queue's own shuffle only
+        // reorders the ~50 songs Apple Music web has loaded).
+        Button {
+          iconText: "󰒝"
+          foreground: root.bar.foreground
+          horizontalPadding: Style.spacing.controlPaddingX
+          verticalPadding: Style.spacing.controlPaddingY
+          enabled: root.running
+          opacity: enabled ? 0.85 : 0.4
+          onClicked: root.am.shuffleLibrary()
+        }
         Button {
           iconText: "󰒮"
           foreground: root.bar.foreground

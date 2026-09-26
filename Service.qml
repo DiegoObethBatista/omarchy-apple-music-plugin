@@ -69,6 +69,14 @@ Item {
     return true
   }
   function toggleShuffle() { return setShuffle(!root.shuffle) }
+
+  // Random mix of the entire library. Works even before anything is queued.
+  function shuffleLibrary() {
+    if (!root.running) { launch(); return false }
+    cmdProc.command = [root.launcher, "--shuffle-library"]
+    cmdProc.running = true
+    return true
+  }
   readonly property real length: queueLength > 0 ? queueLength
                                  : (mprisLength > 0 && mprisLength < 86400 ? mprisLength : 0)
   property real position: 0
@@ -238,6 +246,8 @@ Item {
       if (root.queueInSync && typeof root.queue.time === "number") {
         pos = root.queue.time
         if (root.queue.playing) pos += (Date.now() - root.queueLoadedAt) / 1000
+      } else if (root.queue) {
+        pos = 0   // bridge active but mid track-change: MPRIS clock is wrong here
       } else {
         pos = root.player.positionSupported ? root.player.position : 0
       }
@@ -269,6 +279,7 @@ Item {
     function queue(): string { return JSON.stringify(root.queue) }
     function playIndex(index: int): string { return root.playQueueIndex(index) ? "ok" : "unhandled" }
     function shuffle(): string { return root.toggleShuffle() ? (root.shuffle ? "on" : "off") : "unhandled" }
+    function shuffleLibrary(): string { return root.shuffleLibrary() ? "ok" : "unhandled" }
     function setShuffle(on: bool): string { return root.setShuffle(on) ? "ok" : "unhandled" }
     function seek(seconds: real): string { return root.seekTo(seconds) ? "ok" : "unhandled" }
     function ping(): string { return "ok" }
