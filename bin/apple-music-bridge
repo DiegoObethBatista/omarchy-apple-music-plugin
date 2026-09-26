@@ -61,8 +61,13 @@ def main():
             if len(raw) < 4:
                 break
             (n,) = struct.unpack("=I", raw)
-            msg = json.loads(stdin.read(n))
-            if msg.get("type") == "queue" and isinstance(msg.get("state"), dict):
+            if n > 256 * 1024:              # a real snapshot is ~2 KB; refuse before reading
+                break
+            try:
+                msg = json.loads(stdin.read(n))
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and msg.get("type") == "queue" and isinstance(msg.get("state"), dict):
                 write_state(msg["state"])
     finally:
         for path in (STATE_FILE, CMD_FIFO):   # app closed: queue no longer valid

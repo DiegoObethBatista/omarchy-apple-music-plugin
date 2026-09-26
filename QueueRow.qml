@@ -43,7 +43,9 @@ BorderSurface {
         anchors.fill: parent
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
-        source: row.track && row.track.art ? row.track.art : ""
+        // Only load artwork from Apple's CDN: queue data originates in a web
+        // page, so never let it make the shell fetch arbitrary URLs.
+        source: row.track && /^https:\/\/[a-z0-9-]+\.mzstatic\.com\//.test(String(row.track.art || "")) ? row.track.art : ""
         visible: status === Image.Ready
       }
       Text {
