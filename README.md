@@ -93,3 +93,7 @@ Apple Music windows need one restart after updating to pick up the extension.
 ## License
 
 MIT
+
+## Learn how it works
+
+See [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md): a lesson-by-lesson tour of the code, with exercises.
