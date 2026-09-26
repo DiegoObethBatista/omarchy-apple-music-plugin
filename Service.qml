@@ -39,6 +39,24 @@ Item {
   readonly property real length: player && player.lengthSupported ? player.length : 0
   property real position: 0
 
+  // Queue published by the bundled Chromium extension via bin/apple-music-bridge.
+  // Shape: { position, length, previous, current, next, upcoming: [...] }
+  // where each item is { index, title, artist, album, art, duration }.
+  readonly property string stateDir: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-apple-music"
+  property var queue: null
+  readonly property var previousTrack: queue ? queue.previous : null
+  readonly property var nextTrack: queue ? queue.next : null
+  readonly property var upcoming: queue && queue.upcoming ? queue.upcoming : []
+  readonly property bool hasQueue: queue !== null && (previousTrack !== null || nextTrack !== null)
+
+  // Jump straight to a queue entry (e.g. clicking "Up next" in the popup).
+  function playQueueIndex(index) {
+    if (!root.running || !Number.isInteger(index)) return false
+    cmdProc.command = [root.launcher, "--play-index", String(index)]
+    cmdProc.running = true
+    return true
+  }
+
   function launch() {
     Quickshell.execDetached([root.launcher])
     pidTimer.interval = 1000
@@ -96,9 +114,35 @@ Item {
       artist: root.artist,
       album: root.album,
       position: Math.round(root.position),
-      length: Math.round(root.length)
+      length: Math.round(root.length),
+      previous: root.previousTrack ? { title: root.previousTrack.title, artist: root.previousTrack.artist } : null,
+      next: root.nextTrack ? { title: root.nextTrack.title, artist: root.nextTrack.artist } : null
     })
   }
+
+  Process { id: cmdProc }
+
+  FileView {
+    id: queueFile
+    path: root.running ? root.stateDir + "/queue-" + root.appPid + ".json" : ""
+    printErrors: false
+    onLoaded: {
+      try { root.queue = JSON.parse(text()) } catch (e) { root.queue = null }
+    }
+    onLoadFailed: root.queue = null
+  }
+
+  // The bridge replaces the file atomically; polling reload is simpler and
+  // more robust than inotify across renames. Tiny file, 1 s cadence.
+  Timer {
+    interval: 1000
+    repeat: true
+    running: root.running
+    triggeredOnStart: true
+    onTriggered: queueFile.reload()
+  }
+
+  onRunningChanged: if (!running) root.queue = null
 
   // PID discovery: fast while starting up, relaxed once found.
   Process {
@@ -157,6 +201,8 @@ Item {
       if (ok) root.osd("Previous", "media-previous")
       return ok ? "ok" : "unhandled"
     }
+    function queue(): string { return JSON.stringify(root.queue) }
+    function playIndex(index: int): string { return root.playQueueIndex(index) ? "ok" : "unhandled" }
     function ping(): string { return "ok" }
   }
 }

@@ -2,9 +2,13 @@
 # Launch (or focus) Apple Music as a dedicated Chromium web app.
 # A separate --user-data-dir gives it its own browser process, so its MPRIS
 # player is distinct from Brave/other tabs and the bar plugin can find it.
+# The bundled extension publishes the queue (previous/next) to the bar.
 
+PLUGIN_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 DATA_DIR="${APPLE_MUSIC_DATA_DIR:-$HOME/.local/share/omarchy-apple-music}"
-URL="${1:-https://music.apple.com/}"
+EXT_ID="fjoekhebednpfbbbhbmoaldpkmimfofk"
+HOST_NAME="io.omarchy.apple_music"
+URL="https://music.apple.com/"
 mkdir -p "$DATA_DIR"
 
 case "${1:-}" in
@@ -12,7 +16,34 @@ case "${1:-}" in
     pkill -f -- "--user-data-dir=$DATA_DIR" && exit 0 || exit 1 ;;
   --pid)
     pgrep -of -- "--user-data-dir=$DATA_DIR" ; exit $? ;;
+  --play-index)
+    # Jump to a queue entry via the bridge's per-browser command FIFO.
+    [[ ${2:-} =~ ^[0-9]+$ ]] || { echo "usage: $0 --play-index N" >&2; exit 2; }
+    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
+    fifo="${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/commands-$pid"
+    [[ -p $fifo ]] || exit 1
+    timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"playIndex\",\"index\":$2}" "$fifo"
+    exit $? ;;
+  --queue)
+    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
+    cat "${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/queue-$pid.json" 2>/dev/null
+    exit $? ;;
+  http*) URL="$1" ;;
 esac
+
+# Native-messaging host manifest lives inside the dedicated profile, so it
+# never touches the user's regular Chromium profile.
+NM_DIR="$DATA_DIR/NativeMessagingHosts"
+mkdir -p "$NM_DIR"
+cat > "$NM_DIR/$HOST_NAME.json" <<EOF
+{
+  "name": "$HOST_NAME",
+  "description": "Omarchy Apple Music queue bridge",
+  "path": "$PLUGIN_DIR/bin/apple-music-bridge",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://$EXT_ID/"]
+}
+EOF
 
 if pgrep -f -- "--user-data-dir=$DATA_DIR" >/dev/null; then
   addr=$(hyprctl clients -j | jq -r '.[] | select(.class | test("music\\.apple\\.com"; "i")) | .address' | head -n1)
@@ -25,6 +56,8 @@ fi
 exec setsid uwsm-app -- chromium \
   --user-data-dir="$DATA_DIR" \
   --app="$URL" \
+  --load-extension="$PLUGIN_DIR/extension" \
+  --disable-features=DisableLoadExtensionCommandLineSwitch \
   --ozone-platform-hint=auto \
   --enable-features=HardwareMediaKeyHandling \
   >/dev/null 2>&1

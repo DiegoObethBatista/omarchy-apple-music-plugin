@@ -256,6 +256,64 @@ BarWidget {
         }
       }
 
+      PanelSeparator {
+        foreground: root.bar.foreground
+        visible: queueSection.visible
+      }
+
+      // Previous / Up next, from the MusicKit queue via the bridge extension.
+      Column {
+        id: queueSection
+        width: parent.width
+        spacing: Style.space(4)
+        visible: root.am !== null && root.am.hasQueue
+
+        Text {
+          textFormat: Text.PlainText
+          text: "Previous"
+          visible: root.am && root.am.previousTrack !== null
+          color: Qt.darker(root.bar.foreground, 1.6)
+          font.family: root.bar.fontFamily
+          font.pixelSize: Style.font.caption
+          font.bold: true
+        }
+
+        QueueRow {
+          width: parent.width
+          bar: root.bar
+          track: root.am ? root.am.previousTrack : null
+          glyph: "󰒮"
+          visible: track !== null
+          onActivated: root.am.previous()
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          text: "Up next"
+          visible: root.am && root.am.upcoming.length > 0
+          color: Qt.darker(root.bar.foreground, 1.6)
+          font.family: root.bar.fontFamily
+          font.pixelSize: Style.font.caption
+          font.bold: true
+          topPadding: Style.space(4)
+        }
+
+        Repeater {
+          model: root.am ? root.am.upcoming : []
+          QueueRow {
+            required property var modelData
+            required property int index
+            width: queueSection.width
+            bar: root.bar
+            track: modelData
+            glyph: index === 0 ? "󰒭" : ""
+            // Autoplay entries without a queue index: first one = just skip ahead.
+            onActivated: modelData.index >= 0 ? root.am.playQueueIndex(modelData.index)
+                                              : (index === 0 ? root.am.next() : null)
+          }
+        }
+      }
+
       PanelSeparator { foreground: root.bar.foreground }
 
       Row {

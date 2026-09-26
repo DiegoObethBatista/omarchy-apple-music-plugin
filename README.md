@@ -7,6 +7,8 @@ dedicated Chromium web app and controls it from the Omarchy bar over MPRIS.
   separate MPRIS player, never confused with Brave/YouTube tabs
 - Widevine DRM works (Chromium ships it), sign in once with your Apple ID
 - Artwork, title/artist/album, seek bar, prev / play-pause / next, show / quit
+- **Previous / Up next** list from the real Apple Music queue (incl. autoplay);
+  click any upcoming track to jump to it
 
 ## Install
 
@@ -14,7 +16,7 @@ dedicated Chromium web app and controls it from the Omarchy bar over MPRIS.
 omarchy plugin add https://github.com/DiegoObethBatista/omarchy-apple-music-plugiin.git --enable
 ```
 
-Requires `chromium` and `jq` (both standard on Omarchy).
+Requires `chromium`, `jq` and `python3` (all standard on Omarchy).
 
 Optional app-launcher entry:
 
@@ -36,7 +38,7 @@ EOF
 | Left click | Open Apple Music if closed; otherwise play/pause |
 | Middle click | Next track |
 | Scroll | Previous / next |
-| Right click | Popup: artwork, seek, controls, show window, quit |
+| Right click | Popup: artwork, seek, controls, previous / up next, show window, quit |
 
 Settings (`shell.json` entry): `showTitle` (bool), `maxLabelWidth` (px).
 
@@ -47,14 +49,17 @@ omarchy-shell apple-music launch
 omarchy-shell apple-music playPause
 omarchy-shell apple-music next
 omarchy-shell apple-music previous
-omarchy-shell apple-music status   # JSON
+omarchy-shell apple-music status   # JSON, includes previous/next
+omarchy-shell apple-music queue    # JSON: previous, current, next, upcoming[]
+omarchy-shell apple-music playIndex 7   # jump to queue index
 omarchy-shell apple-music quit
 ```
 
 ## Launcher script
 
 `bin/apple-music` launches or focuses the app; `--pid` prints the main PID,
-`--quit` closes it. Override the profile dir with `APPLE_MUSIC_DATA_DIR`.
+`--quit` closes it, `--queue` prints the queue JSON, `--play-index N` jumps
+to a queue entry. Override the profile dir with `APPLE_MUSIC_DATA_DIR`.
 
 ## How it works
 
@@ -62,6 +67,15 @@ The launcher starts Chromium with its own `--user-data-dir`, giving it its own
 main process. Chromium publishes MPRIS as
 `org.mpris.MediaPlayer2.chromium.instance<PID>`; the service matches that PID,
 so only the Apple Music window is controlled.
+
+MPRIS has no queue, so the launcher also loads a small bundled extension
+(`extension/`, only into this dedicated profile). It reads MusicKit's queue
+inside the page and sends it over Chrome native messaging to
+`bin/apple-music-bridge`, which writes
+`$XDG_RUNTIME_DIR/omarchy-apple-music/queue-<PID>.json` and relays jump commands
+from the `commands-<PID>` FIFO. The native-host manifest is written into the
+dedicated profile, so your normal Chromium profile is untouched. Existing
+Apple Music windows need one restart after updating to pick up the extension.
 
 ## License
 

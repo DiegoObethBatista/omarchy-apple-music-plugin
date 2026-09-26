@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Native-messaging host for the Apple Music bridge extension.
+
+Chromium -> host (stdin):  {"type":"queue","state":{...}}  -> written to STATE_FILE
+host -> Chromium (stdout): {"type":"command",...}          <- lines read from CMD_FIFO
+"""
+import json, os, struct, sys, threading, tempfile
+
+STATE_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir(), "omarchy-apple-music")
+# Chromium spawns the host directly, so the parent PID is the browser's main
+# PID (the same one in its MPRIS bus name). Keying files on it keeps multiple
+# Chromium instances from ever crossing wires.
+BROWSER_PID = os.getppid()
+STATE_FILE = os.path.join(STATE_DIR, "queue-%d.json" % BROWSER_PID)
+CMD_FIFO = os.path.join(STATE_DIR, "commands-%d" % BROWSER_PID)
+out_lock = threading.Lock()
+
+
+def send(msg):
+    data = json.dumps(msg).encode()
+    with out_lock:
+        sys.stdout.buffer.write(struct.pack("=I", len(data)) + data)
+        sys.stdout.buffer.flush()
+
+
+def write_state(state):
+    tmp = STATE_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.replace(tmp, STATE_FILE)
+
+
+def command_loop():
+    while True:
+        try:
+            with open(CMD_FIFO) as fifo:          # blocks until a writer appears
+                for line in fifo:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        cmd = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(cmd, dict) and cmd.get("action") in ("playIndex", "refresh"):
+                        cmd["type"] = "command"
+                        send(cmd)
+        except OSError:
+            return
+
+
+def main():
+    os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
+    if not os.path.exists(CMD_FIFO):
+        os.mkfifo(CMD_FIFO, 0o600)
+    threading.Thread(target=command_loop, daemon=True).start()
+    stdin = sys.stdin.buffer
+    try:
+        while True:
+            raw = stdin.read(4)
+            if len(raw) < 4:
+                break
+            (n,) = struct.unpack("=I", raw)
+            msg = json.loads(stdin.read(n))
+            if msg.get("type") == "queue" and isinstance(msg.get("state"), dict):
+                write_state(msg["state"])
+    finally:
+        for path in (STATE_FILE, CMD_FIFO):   # app closed: queue no longer valid
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+if __name__ == "__main__":
+    main()
