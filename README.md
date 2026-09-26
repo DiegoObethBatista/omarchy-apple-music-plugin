@@ -15,7 +15,7 @@ dedicated Chromium web app and controls it from the Omarchy bar over MPRIS.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/DiegoObethBatista/omarchy-apple-music-plugiin.git --enable
+omarchy plugin add https://github.com/DiegoObethBatista/omarchy-apple-music-plugin.git --enable
 ```
 
 Requires `chromium`, `jq` and `python3` (all standard on Omarchy).
