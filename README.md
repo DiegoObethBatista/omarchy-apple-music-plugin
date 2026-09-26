@@ -6,7 +6,8 @@ dedicated Chromium web app and controls it from the Omarchy bar over MPRIS.
 - Own Chromium profile (`~/.local/share/omarchy-apple-music`) so Apple Music is a
   separate MPRIS player, never confused with Brave/YouTube tabs
 - Widevine DRM works (Chromium ships it), sign in once with your Apple ID
-- Artwork, title/artist/album, seek bar, prev / play-pause / next, show / quit
+- Artwork, title/artist/album, seek bar, shuffle / prev / play-pause / next, show / quit
+- Accurate per-track time and length (from MusicKit, not Chromium's MPRIS clock)
 - **Previous / Up next** list from the real Apple Music queue (incl. autoplay);
   click any upcoming track to jump to it
 
@@ -38,7 +39,7 @@ EOF
 | Left click | Open Apple Music if closed; otherwise play/pause |
 | Middle click | Next track |
 | Scroll | Previous / next |
-| Right click | Popup: artwork, seek, controls, previous / up next, show window, quit |
+| Right click | Popup: artwork, seek, shuffle + controls, previous / up next, show window, quit |
 
 Settings (`shell.json` entry): `showTitle` (bool), `maxLabelWidth` (px).
 
@@ -52,6 +53,9 @@ omarchy-shell apple-music previous
 omarchy-shell apple-music status   # JSON, includes previous/next
 omarchy-shell apple-music queue    # JSON: previous, current, next, upcoming[]
 omarchy-shell apple-music playIndex 7   # jump to queue index
+omarchy-shell apple-music shuffle       # toggle; prints on/off
+omarchy-shell apple-music setShuffle true
+omarchy-shell apple-music seek 90       # seconds into current track
 omarchy-shell apple-music quit
 ```
 
@@ -59,7 +63,7 @@ omarchy-shell apple-music quit
 
 `bin/apple-music` launches or focuses the app; `--pid` prints the main PID,
 `--quit` closes it, `--queue` prints the queue JSON, `--play-index N` jumps
-to a queue entry. Override the profile dir with `APPLE_MUSIC_DATA_DIR`.
+to a queue entry, `--shuffle [on|off|toggle]`, `--seek SECONDS`. Override the profile dir with `APPLE_MUSIC_DATA_DIR`.
 
 ## How it works
 

@@ -36,7 +36,41 @@ Item {
   readonly property string artist: player ? (player.trackArtist || "") : ""
   readonly property string album: player && player.trackAlbum ? player.trackAlbum : ""
   readonly property string artUrl: player && player.trackArtUrl ? player.trackArtUrl : ""
-  readonly property real length: player && player.lengthSupported ? player.length : 0
+  // Chromium's MPRIS reports mpris:length = INT64_MAX for Apple Music (its
+  // MSE stream has an infinite media duration), so the MPRIS length is garbage.
+  // Prefer MusicKit's real duration from the queue when it's for this track;
+  // fall back to MPRIS only if it's a sane value (< 24 h).
+  readonly property real mprisLength: player && player.lengthSupported ? player.length : 0
+  // True when the bridge's snapshot describes the track MPRIS is showing.
+  readonly property bool queueInSync: {
+    var c = queue ? queue.current : null
+    return c !== null && c !== undefined && (!root.title || !c.title || c.title === root.title)
+  }
+  readonly property real queueLength: {
+    if (!queueInSync) return 0
+    if (queue.duration > 0) return queue.duration
+    return queue.current.duration > 0 ? queue.current.duration : 0
+  }
+  property real queueLoadedAt: 0   // ms, when queue.time was read
+
+  // Shuffle lives in MusicKit (Chromium's MPRIS doesn't implement it).
+  // Optimistic local value so the button reacts instantly; the bridge
+  // snapshot overrides it once MusicKit confirms.
+  property var shufflePending: null
+  readonly property bool shuffle: shufflePending !== null ? shufflePending : !!(queue && queue.shuffle)
+  readonly property bool canShuffle: running && queue !== null
+
+  function setShuffle(on) {
+    if (!root.canShuffle) return false
+    root.shufflePending = on
+    shuffleTimeout.restart()
+    cmdProc.command = [root.launcher, "--shuffle", on ? "on" : "off"]
+    cmdProc.running = true
+    return true
+  }
+  function toggleShuffle() { return setShuffle(!root.shuffle) }
+  readonly property real length: queueLength > 0 ? queueLength
+                                 : (mprisLength > 0 && mprisLength < 86400 ? mprisLength : 0)
   property real position: 0
 
   // Queue published by the bundled Chromium extension via bin/apple-music-bridge.
@@ -94,9 +128,20 @@ Item {
   }
 
   function seekTo(seconds) {
-    if (!player || !player.canSeek) return false
-    player.position = Math.max(0, Math.min(root.length, seconds))
-    root.position = player.position
+    var target = Math.max(0, root.length > 0 ? Math.min(root.length - 1, seconds) : seconds)
+    // MPRIS SetPosition uses Chromium's continuous stream clock (spans the whole
+    // queue), so seek through MusicKit whenever the bridge is available.
+    if (root.queueInSync) {
+      cmdProc.command = [root.launcher, "--seek", String(Math.floor(target))]
+      cmdProc.running = true
+    } else if (player && player.canSeek) {
+      player.position = target
+    } else {
+      return false
+    }
+    root.position = target
+    root.queueLoadedAt = Date.now()
+    if (root.queue) root.queue.time = target
     return true
   }
 
@@ -115,6 +160,7 @@ Item {
       album: root.album,
       position: Math.round(root.position),
       length: Math.round(root.length),
+      shuffle: root.shuffle,
       previous: root.previousTrack ? { title: root.previousTrack.title, artist: root.previousTrack.artist } : null,
       next: root.nextTrack ? { title: root.nextTrack.title, artist: root.nextTrack.artist } : null
     })
@@ -122,12 +168,24 @@ Item {
 
   Process { id: cmdProc }
 
+  // Drop the optimistic value if MusicKit never confirms (e.g. old extension).
+  Timer { id: shuffleTimeout; interval: 3000; onTriggered: root.shufflePending = null }
+
   FileView {
     id: queueFile
     path: root.running ? root.stateDir + "/queue-" + root.appPid + ".json" : ""
     printErrors: false
     onLoaded: {
-      try { root.queue = JSON.parse(text()) } catch (e) { root.queue = null }
+      var q = null
+      try { q = JSON.parse(text()) } catch (e) { q = null }
+      // Only reset the clock anchor when the reported time actually changed.
+      if (!q || !root.queue || q.time !== root.queue.time || q.playing !== root.queue.playing)
+        root.queueLoadedAt = Date.now()
+      root.queue = q
+      if (q && root.shufflePending !== null && !!q.shuffle === root.shufflePending) {
+        root.shufflePending = null
+        shuffleTimeout.stop()
+      }
     }
     onLoadFailed: root.queue = null
   }
@@ -176,7 +234,14 @@ Item {
     onTriggered: {
       if (!root.player) return
       root.player.positionChanged()
-      root.position = root.player.positionSupported ? root.player.position : 0
+      var pos
+      if (root.queueInSync && typeof root.queue.time === "number") {
+        pos = root.queue.time
+        if (root.queue.playing) pos += (Date.now() - root.queueLoadedAt) / 1000
+      } else {
+        pos = root.player.positionSupported ? root.player.position : 0
+      }
+      root.position = root.length > 0 ? Math.min(Math.max(0, pos), root.length) : Math.max(0, pos)
     }
   }
 
@@ -203,6 +268,9 @@ Item {
     }
     function queue(): string { return JSON.stringify(root.queue) }
     function playIndex(index: int): string { return root.playQueueIndex(index) ? "ok" : "unhandled" }
+    function shuffle(): string { return root.toggleShuffle() ? (root.shuffle ? "on" : "off") : "unhandled" }
+    function setShuffle(on: bool): string { return root.setShuffle(on) ? "ok" : "unhandled" }
+    function seek(seconds: real): string { return root.seekTo(seconds) ? "ok" : "unhandled" }
     function ping(): string { return "ok" }
   }
 }

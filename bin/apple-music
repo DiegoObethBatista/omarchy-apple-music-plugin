@@ -24,6 +24,23 @@ case "${1:-}" in
     [[ -p $fifo ]] || exit 1
     timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"playIndex\",\"index\":$2}" "$fifo"
     exit $? ;;
+  --seek)
+    # Seek within the current track (seconds) via MusicKit.
+    [[ ${2:-} =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "usage: $0 --seek SECONDS" >&2; exit 2; }
+    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
+    fifo="${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/commands-$pid"
+    [[ -p $fifo ]] || exit 1
+    timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"seek\",\"seconds\":$2}" "$fifo"
+    exit $? ;;
+  --shuffle)
+    # Shuffle via MusicKit: on | off | toggle (default).
+    case "${2:-toggle}" in on) arg=',"on":true' ;; off) arg=',"on":false' ;; toggle) arg='' ;;
+      *) echo "usage: $0 --shuffle [on|off|toggle]" >&2; exit 2 ;; esac
+    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
+    fifo="${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/commands-$pid"
+    [[ -p $fifo ]] || exit 1
+    timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"shuffle\"$arg}" "$fifo"
+    exit $? ;;
   --queue)
     pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
     cat "${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/queue-$pid.json" 2>/dev/null

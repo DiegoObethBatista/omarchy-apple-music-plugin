@@ -55,6 +55,12 @@
       shuffle: mk.shuffleMode === 1,
       repeat: mk.repeatMode,
       autoplay: !!mk.autoplayEnabled,
+      // Per-track time from MusicKit. Chromium's MPRIS position is NOT usable:
+      // MusicKit plays the queue as one continuous MSE stream, so MPRIS keeps
+      // counting across track boundaries.
+      playing: !!mk.isPlaying,
+      time: Math.max(0, Math.floor(mk.currentPlaybackTime || 0)),
+      duration: Math.max(0, Math.round(mk.currentPlaybackDuration || 0)),
       current: item(q.currentItem, pos),
       previous: prevIdx !== undefined && prevIdx !== null && prevIdx >= 0 ? item(items[prevIdx], prevIdx) : null,
       next,
@@ -81,6 +87,12 @@
       if (d.action === "playIndex" && Number.isInteger(d.index)) {
         await withTimeout(mk.changeToMediaAtIndex(d.index));
         if (!mk.isPlaying) await withTimeout(mk.play());
+      } else if (d.action === "shuffle") {
+        // MusicKit: shuffleMode 0 = off, 1 = songs. Chromium's MPRIS has no Shuffle.
+        const on = typeof d.on === "boolean" ? d.on : mk.shuffleMode !== 1;
+        mk.shuffleMode = on ? 1 : 0;
+      } else if (d.action === "seek" && typeof d.seconds === "number" && d.seconds >= 0) {
+        await withTimeout(mk.seekToTime(d.seconds));
       } else if (d.action === "refresh") {
         publish(true);
       }
@@ -92,7 +104,7 @@
     try { mk = window.MusicKit && window.MusicKit.getInstance(); } catch (e) { mk = null; }
     if (!mk) return false;
     for (const ev of ["queueItemsDidChange", "queuePositionDidChange", "nowPlayingItemDidChange",
-                      "shuffleModeDidChange", "repeatModeDidChange"]) {
+                      "shuffleModeDidChange", "repeatModeDidChange", "playbackStateDidChange"]) {
       try { mk.addEventListener(ev, () => publish(false)); } catch (e) {}
     }
     publish(true);
@@ -100,6 +112,6 @@
   }
 
   const wait = setInterval(() => { if (attach()) clearInterval(wait); }, 1000);
-  // Safety net in case an event is missed.
-  setInterval(() => publish(false), 3000);
+  // 1 Hz: keeps the playback time fresh (only changes are actually sent).
+  setInterval(() => publish(false), 1000);
 })();

@@ -9,5 +9,5 @@ window.addEventListener("message", (e) => {
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.type === "command")
-    window.postMessage({ source: TAG, type: "command", action: msg.action, index: msg.index }, location.origin);
+    window.postMessage({ source: TAG, type: "command", action: msg.action, index: msg.index, seconds: msg.seconds, on: msg.on }, location.origin);
 });

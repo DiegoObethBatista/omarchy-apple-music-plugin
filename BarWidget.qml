@@ -227,6 +227,16 @@ BarWidget {
         visible: root.running
 
         Button {
+          id: shuffleButton
+          iconText: "󰒟"
+          foreground: root.am && root.am.shuffle ? Color.accent : root.bar.foreground
+          horizontalPadding: Style.spacing.controlPaddingX
+          verticalPadding: Style.spacing.controlPaddingY
+          enabled: root.am !== null && root.am.canShuffle
+          opacity: !enabled ? 0.4 : (root.am.shuffle ? 1.0 : 0.6)
+          onClicked: root.am.toggleShuffle()
+        }
+        Button {
           iconText: "󰒮"
           foreground: root.bar.foreground
           horizontalPadding: Style.spacing.controlPaddingX
