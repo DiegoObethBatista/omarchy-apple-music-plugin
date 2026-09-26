@@ -84,7 +84,7 @@ Item {
   // Queue published by the bundled Chromium extension via bin/apple-music-bridge.
   // Shape: { position, length, previous, current, next, upcoming: [...] }
   // where each item is { index, title, artist, album, art, duration }.
-  readonly property string stateDir: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-apple-music"
+  readonly property string stateDir: Quickshell.env("XDG_RUNTIME_DIR") + "/omarchy-apple-music"   // owner-only; no /tmp fallback
   property var queue: null
   readonly property var previousTrack: queue ? queue.previous : null
   readonly property var nextTrack: queue ? queue.next : null

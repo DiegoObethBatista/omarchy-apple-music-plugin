@@ -8,6 +8,9 @@ PLUGIN_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 DATA_DIR="${APPLE_MUSIC_DATA_DIR:-$HOME/.local/share/omarchy-apple-music}"
 EXT_ID="fjoekhebednpfbbbhbmoaldpkmimfofk"
 HOST_NAME="io.omarchy.apple_music"
+# Runtime state (queue JSON + command FIFO) lives only in the owner-only
+# $XDG_RUNTIME_DIR, never in shared /tmp.
+STATE_DIR="${XDG_RUNTIME_DIR:+$XDG_RUNTIME_DIR/omarchy-apple-music}"
 URL="https://music.apple.com/"
 mkdir -p "$DATA_DIR"
 
@@ -16,11 +19,13 @@ case "${1:-}" in
     pkill -f -- "--user-data-dir=$DATA_DIR" && exit 0 || exit 1 ;;
   --pid)
     pgrep -of -- "--user-data-dir=$DATA_DIR" ; exit $? ;;
+  --play-index|--seek|--shuffle|--shuffle-library|--queue)
+    [[ -n $STATE_DIR ]] || { echo "XDG_RUNTIME_DIR is not set" >&2; exit 1; } ;;&
   --play-index)
     # Jump to a queue entry via the bridge's per-browser command FIFO.
     [[ ${2:-} =~ ^[0-9]+$ ]] || { echo "usage: $0 --play-index N" >&2; exit 2; }
     pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    fifo="${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/commands-$pid"
+    fifo="$STATE_DIR/commands-$pid"
     [[ -p $fifo ]] || exit 1
     timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"playIndex\",\"index\":$2}" "$fifo"
     exit $? ;;
@@ -28,7 +33,7 @@ case "${1:-}" in
     # Seek within the current track (seconds) via MusicKit.
     [[ ${2:-} =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "usage: $0 --seek SECONDS" >&2; exit 2; }
     pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    fifo="${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/commands-$pid"
+    fifo="$STATE_DIR/commands-$pid"
     [[ -p $fifo ]] || exit 1
     timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"seek\",\"seconds\":$2}" "$fifo"
     exit $? ;;
@@ -37,20 +42,20 @@ case "${1:-}" in
     case "${2:-toggle}" in on) arg=',"on":true' ;; off) arg=',"on":false' ;; toggle) arg='' ;;
       *) echo "usage: $0 --shuffle [on|off|toggle]" >&2; exit 2 ;; esac
     pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    fifo="${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/commands-$pid"
+    fifo="$STATE_DIR/commands-$pid"
     [[ -p $fifo ]] || exit 1
     timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"shuffle\"$arg}" "$fifo"
     exit $? ;;
   --shuffle-library)
     # Random mix from the whole library (starts playing).
     pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    fifo="${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/commands-$pid"
+    fifo="$STATE_DIR/commands-$pid"
     [[ -p $fifo ]] || exit 1
     timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ '{"action":"shuffleLibrary"}' "$fifo"
     exit $? ;;
   --queue)
     pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    cat "${XDG_RUNTIME_DIR:-/tmp}/omarchy-apple-music/queue-$pid.json" 2>/dev/null
+    cat "$STATE_DIR/queue-$pid.json" 2>/dev/null
     exit $? ;;
   http*) URL="$1" ;;
 esac

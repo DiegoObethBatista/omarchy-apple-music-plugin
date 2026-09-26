@@ -4,9 +4,13 @@
 Chromium -> host (stdin):  {"type":"queue","state":{...}}  -> written to STATE_FILE
 host -> Chromium (stdout): {"type":"command",...}          <- lines read from CMD_FIFO
 """
-import json, os, struct, sys, threading, tempfile
+import json, os, struct, sys, threading
 
-STATE_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir(), "omarchy-apple-music")
+# Owner-only runtime dir only; never fall back to shared /tmp.
+RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", "")
+if not RUNTIME_DIR or not os.path.isdir(RUNTIME_DIR):
+    sys.exit("apple-music-bridge: XDG_RUNTIME_DIR is not set")
+STATE_DIR = os.path.join(RUNTIME_DIR, "omarchy-apple-music")
 # Chromium spawns the host directly, so the parent PID is the browser's main
 # PID (the same one in its MPRIS bus name). Keying files on it keeps multiple
 # Chromium instances from ever crossing wires.
@@ -51,6 +55,10 @@ def command_loop():
 
 def main():
     os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
+    st = os.lstat(STATE_DIR)
+    if not os.path.isdir(STATE_DIR) or os.path.islink(STATE_DIR) or st.st_uid != os.getuid():
+        sys.exit("apple-music-bridge: refusing unsafe state dir " + STATE_DIR)
+    os.chmod(STATE_DIR, 0o700)
     if not os.path.exists(CMD_FIFO):
         os.mkfifo(CMD_FIFO, 0o600)
     threading.Thread(target=command_loop, daemon=True).start()

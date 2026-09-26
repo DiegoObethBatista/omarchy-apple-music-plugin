@@ -97,3 +97,10 @@ MIT
 ## Learn how it works
 
 See [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md): a lesson-by-lesson tour of the code, with exercises.
+
+## Security notes
+
+- No network listeners, no `sudo`/`pkexec`, no systemd units, no downloads, no bundled binaries.
+- Runtime state (queue JSON + command FIFO) lives only in the owner-only `$XDG_RUNTIME_DIR/omarchy-apple-music` (`0700`); the bridge refuses to start without it.
+- The extension and native-messaging host are installed only into the plugin's dedicated Chromium profile; your regular browser profile is untouched.
+- Data coming from the web page is treated as untrusted: displayed as plain text, artwork loaded only from Apple's CDN, bridge messages size-limited and validated.
