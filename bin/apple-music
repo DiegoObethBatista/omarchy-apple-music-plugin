@@ -1,0 +1,30 @@
+#!/bin/bash
+# Launch (or focus) Apple Music as a dedicated Chromium web app.
+# A separate --user-data-dir gives it its own browser process, so its MPRIS
+# player is distinct from Brave/other tabs and the bar plugin can find it.
+
+DATA_DIR="${APPLE_MUSIC_DATA_DIR:-$HOME/.local/share/omarchy-apple-music}"
+URL="${1:-https://music.apple.com/}"
+mkdir -p "$DATA_DIR"
+
+case "${1:-}" in
+  --quit)
+    pkill -f -- "--user-data-dir=$DATA_DIR" && exit 0 || exit 1 ;;
+  --pid)
+    pgrep -of -- "--user-data-dir=$DATA_DIR" ; exit $? ;;
+esac
+
+if pgrep -f -- "--user-data-dir=$DATA_DIR" >/dev/null; then
+  addr=$(hyprctl clients -j | jq -r '.[] | select(.class | test("music\\.apple\\.com"; "i")) | .address' | head -n1)
+  if [[ -n $addr ]]; then
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null 2>&1 || hyprctl dispatch focuswindow "address:$addr" >/dev/null
+    exit 0
+  fi
+fi
+
+exec setsid uwsm-app -- chromium \
+  --user-data-dir="$DATA_DIR" \
+  --app="$URL" \
+  --ozone-platform-hint=auto \
+  --enable-features=HardwareMediaKeyHandling \
+  >/dev/null 2>&1
