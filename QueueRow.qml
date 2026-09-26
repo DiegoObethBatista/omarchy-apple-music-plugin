@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Ui
 import qs.Commons
+import "Logic.js" as Logic
 
 // One track in the Previous / Up next list: artwork, title, artist, duration.
 BorderSurface {
@@ -43,9 +44,7 @@ BorderSurface {
         anchors.fill: parent
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
-        // Only load artwork from Apple's CDN: queue data originates in a web
-        // page, so never let it make the shell fetch arbitrary URLs.
-        source: row.track && /^https:\/\/[a-z0-9-]+\.mzstatic\.com\//.test(String(row.track.art || "")) ? row.track.art : ""
+        source: row.track ? Logic.safeArt(row.track.art) : ""
         visible: status === Image.Ready
       }
       Text {

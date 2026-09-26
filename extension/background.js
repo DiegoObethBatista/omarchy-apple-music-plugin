@@ -19,8 +19,8 @@ function connect() {
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (!msg || msg.type !== "queue") return;
-  lastState = msg.state;
+  if (!msg || (msg.type !== "queue" && msg.type !== "search")) return;
+  if (msg.type === "queue") lastState = msg.state;
   const p = connect();
   if (p) p.postMessage(msg);
 });

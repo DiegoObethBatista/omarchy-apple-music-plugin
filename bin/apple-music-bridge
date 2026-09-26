@@ -1,88 +1,179 @@
 #!/usr/bin/env python3
 """Native-messaging host for the Apple Music bridge extension.
 
-Chromium -> host (stdin):  {"type":"queue","state":{...}}  -> written to STATE_FILE
-host -> Chromium (stdout): {"type":"command",...}          <- lines read from CMD_FIFO
+Chromium -> host (stdin):  {"type":"queue","state":{...}}    -> STATE_FILE
+                           {"type":"search","results":{...}} -> SEARCH_FILE
+host -> Chromium (stdout): {"type":"command",...}            <- lines read from CMD_FIFO
+
+Every command is rebuilt field-by-field by sanitize_command() before it is
+forwarded; page.js validates again with the same rules (defence in depth).
 """
-import json, os, struct, sys, threading
+import json, os, re, struct, sys, threading
 
-# Owner-only runtime dir only; never fall back to shared /tmp.
-RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", "")
-if not RUNTIME_DIR or not os.path.isdir(RUNTIME_DIR):
-    sys.exit("apple-music-bridge: XDG_RUNTIME_DIR is not set")
-STATE_DIR = os.path.join(RUNTIME_DIR, "omarchy-apple-music")
-# Chromium spawns the host directly, so the parent PID is the browser's main
-# PID (the same one in its MPRIS bus name). Keying files on it keeps multiple
-# Chromium instances from ever crossing wires.
-BROWSER_PID = os.getppid()
-STATE_FILE = os.path.join(STATE_DIR, "queue-%d.json" % BROWSER_PID)
-CMD_FIFO = os.path.join(STATE_DIR, "commands-%d" % BROWSER_PID)
-out_lock = threading.Lock()
+MAX_MESSAGE = 256 * 1024           # a real snapshot is ~3 KB, search ~6 KB
+KINDS = ("songs", "albums", "playlists", "library-songs", "library-albums", "library-playlists")
+MODES = ("now", "next", "later")
+ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
-def send(msg):
+def _int(v, lo, hi):
+    return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+
+
+def sanitize_command(d):
+    """Return a clean command dict, or None if it isn't one we accept."""
+    if not isinstance(d, dict) or not isinstance(d.get("action"), str):
+        return None
+    a = d["action"]
+    if a in ("refresh", "shuffleLibrary", "addToLibrary"):
+        return {"action": a}
+    if a == "playIndex":
+        return {"action": a, "index": d.get("index")} if _int(d.get("index"), 0, 100000) else None
+    if a == "seek":
+        s = d.get("seconds")
+        ok = isinstance(s, (int, float)) and not isinstance(s, bool) and 0 <= s <= 86400
+        return {"action": a, "seconds": s} if ok else None
+    if a == "shuffle":
+        if "on" not in d:
+            return {"action": a}
+        return {"action": a, "on": d["on"]} if isinstance(d["on"], bool) else None
+    if a == "repeat":
+        if "mode" not in d:
+            return {"action": a}
+        return {"action": a, "mode": d["mode"]} if _int(d["mode"], 0, 2) else None
+    if a == "rate":
+        return {"action": a, "value": d.get("value")} if _int(d.get("value"), -1, 1) else None
+    if a == "search":
+        t = d.get("term")
+        if isinstance(t, str) and 1 <= len(t.strip()) and len(t) <= 200 and _int(d.get("id"), 0, 10**9):
+            return {"action": a, "term": t.strip(), "id": d["id"]}
+        return None
+    if a == "playItem":
+        k, i, m = d.get("kind"), d.get("id"), d.get("mode")
+        if k in KINDS and isinstance(i, str) and ID_RE.match(i) and m in MODES:
+            return {"action": a, "kind": k, "id": i, "mode": m}
+        return None
+    return None
+
+
+def encode(msg):
+    """Chrome native-messaging frame: 4-byte native-endian length + JSON."""
     data = json.dumps(msg).encode()
-    with out_lock:
-        sys.stdout.buffer.write(struct.pack("=I", len(data)) + data)
-        sys.stdout.buffer.flush()
+    return struct.pack("=I", len(data)) + data
 
 
-def write_state(state):
-    tmp = STATE_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(state, f)
-    os.replace(tmp, STATE_FILE)
-
-
-def command_loop():
-    while True:
-        try:
-            with open(CMD_FIFO) as fifo:          # blocks until a writer appears
-                for line in fifo:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        cmd = json.loads(line)
-                    except ValueError:
-                        continue
-                    if isinstance(cmd, dict) and cmd.get("action") in ("playIndex", "seek", "shuffle", "shuffleLibrary", "refresh"):
-                        cmd["type"] = "command"
-                        send(cmd)
-        except OSError:
-            return
-
-
-def main():
-    os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
-    st = os.lstat(STATE_DIR)
-    if not os.path.isdir(STATE_DIR) or os.path.islink(STATE_DIR) or st.st_uid != os.getuid():
-        sys.exit("apple-music-bridge: refusing unsafe state dir " + STATE_DIR)
-    os.chmod(STATE_DIR, 0o700)
-    if not os.path.exists(CMD_FIFO):
-        os.mkfifo(CMD_FIFO, 0o600)
-    threading.Thread(target=command_loop, daemon=True).start()
-    stdin = sys.stdin.buffer
+def read_frame(stream):
+    """Read one frame. Returns the decoded object, None to skip, or raises EOFError."""
+    raw = stream.read(4)
+    if len(raw) < 4:
+        raise EOFError
+    (n,) = struct.unpack("=I", raw)
+    if n > MAX_MESSAGE:                # refuse before reading the body
+        raise EOFError
+    body = stream.read(n)
+    if len(body) < n:
+        raise EOFError
     try:
+        return json.loads(body)
+    except ValueError:
+        return None
+
+
+def atomic_write(path, obj):
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(obj, f)
+    os.replace(tmp, path)
+
+
+class Bridge:
+    def __init__(self, runtime_dir, browser_pid, out):
+        self.state_dir = os.path.join(runtime_dir, "omarchy-apple-music")
+        self.state_file = os.path.join(self.state_dir, "queue-%d.json" % browser_pid)
+        self.search_file = os.path.join(self.state_dir, "search-%d.json" % browser_pid)
+        self.cmd_fifo = os.path.join(self.state_dir, "commands-%d" % browser_pid)
+        self.out = out
+        self.lock = threading.Lock()
+
+    def prepare(self):
+        os.makedirs(self.state_dir, mode=0o700, exist_ok=True)
+        st = os.lstat(self.state_dir)
+        if os.path.islink(self.state_dir) or not os.path.isdir(self.state_dir) or st.st_uid != os.getuid():
+            raise SystemExit("apple-music-bridge: refusing unsafe state dir " + self.state_dir)
+        os.chmod(self.state_dir, 0o700)
+        if not os.path.exists(self.cmd_fifo):
+            os.mkfifo(self.cmd_fifo, 0o600)
+
+    def send(self, msg):
+        with self.lock:
+            self.out.write(encode(msg))
+            self.out.flush()
+
+    def handle_command_line(self, line):
+        """One line from the FIFO -> forwarded command, or None if rejected."""
+        line = line.strip()
+        if not line:
+            return None
+        try:
+            cmd = sanitize_command(json.loads(line))
+        except ValueError:
+            return None
+        if cmd is None:
+            return None
+        cmd["type"] = "command"
+        self.send(cmd)
+        return cmd
+
+    def handle_message(self, msg):
+        """One message from the extension -> the file it updated, or None."""
+        if not isinstance(msg, dict):
+            return None
+        if msg.get("type") == "queue" and isinstance(msg.get("state"), dict):
+            atomic_write(self.state_file, msg["state"])
+            return self.state_file
+        if msg.get("type") == "search" and isinstance(msg.get("results"), dict):
+            atomic_write(self.search_file, msg["results"])
+            return self.search_file
+        return None
+
+    def command_loop(self):
         while True:
-            raw = stdin.read(4)
-            if len(raw) < 4:
-                break
-            (n,) = struct.unpack("=I", raw)
-            if n > 256 * 1024:              # a real snapshot is ~2 KB; refuse before reading
-                break
             try:
-                msg = json.loads(stdin.read(n))
-            except ValueError:
-                continue
-            if isinstance(msg, dict) and msg.get("type") == "queue" and isinstance(msg.get("state"), dict):
-                write_state(msg["state"])
-    finally:
-        for path in (STATE_FILE, CMD_FIFO):   # app closed: queue no longer valid
+                with open(self.cmd_fifo) as fifo:       # blocks until a writer appears
+                    for line in fifo:
+                        self.handle_command_line(line)
+            except OSError:
+                return
+
+    def cleanup(self):
+        for path in (self.state_file, self.search_file, self.cmd_fifo):
             try:
                 os.remove(path)
             except OSError:
                 pass
+
+    def run(self, stdin):
+        self.prepare()
+        threading.Thread(target=self.command_loop, daemon=True).start()
+        try:
+            while True:
+                try:
+                    msg = read_frame(stdin)
+                except EOFError:
+                    break
+                self.handle_message(msg)
+        finally:
+            self.cleanup()                              # app closed: state no longer valid
+
+
+def main():
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "")     # owner-only; never fall back to /tmp
+    if not runtime or not os.path.isdir(runtime):
+        sys.exit("apple-music-bridge: XDG_RUNTIME_DIR is not set")
+    # Chromium spawns the host directly, so the parent PID is the browser's
+    # main PID (the same one in its MPRIS bus name).
+    Bridge(runtime, os.getppid(), sys.stdout.buffer).run(sys.stdin.buffer)
 
 
 if __name__ == "__main__":

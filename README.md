@@ -1,13 +1,17 @@
 # Apple Music for Omarchy
 
 Omarchy shell plugin (`service` + `bar-widget`) that runs **music.apple.com** as a
-dedicated Chromium web app and controls it from the Omarchy bar over MPRIS.
+dedicated Chromium web app and controls it from the Omarchy bar.
 
 - Own Chromium profile (`~/.local/share/omarchy-apple-music`) so Apple Music is a
   separate MPRIS player, never confused with Brave/YouTube tabs
 - Widevine DRM works (Chromium ships it), sign in once with your Apple ID
-- Artwork, title/artist/album, seek bar, shuffle / prev / play-pause / next, show / quit
-- **Library mix** (󰒝): random mix from your whole library — starts in ~2 s
+- Artwork, title/artist/album, seek bar, shuffle / prev / play-pause / next / **repeat**
+- **Search** Apple Music and your library from the popup: play now, play next, add to queue
+- **Love / Suggest less / Add to library** for the current song
+- **Library mix** (󰕆): random mix from your whole library, starts in ~2 s
+- **Hide window**: moves Apple Music to a hidden workspace, music keeps playing
+- **Media keys prefer Apple Music** (optional binding, see below)
 - Accurate per-track time and length (from MusicKit, not Chromium's MPRIS clock)
 - **Previous / Up next** list from the real Apple Music queue (incl. autoplay);
   click any upcoming track to jump to it
@@ -40,32 +44,76 @@ EOF
 | Left click | Open Apple Music if closed; otherwise play/pause |
 | Middle click | Next track |
 | Scroll | Previous / next |
-| Right click | Popup: artwork, seek, shuffle + controls, previous / up next, show window, quit |
+| Right click | Popup: search, artwork, seek, controls, love/dislike/library, mix, queue, hide/quit |
+
+Keys inside the popup:
+
+| Key | Action |
+|---|---|
+| `s` or `/` | Search (type; results appear as you type) |
+| `↑` `↓` | Select a result |
+| `Enter` / `Shift+Enter` / `Ctrl+Enter` | Play now / play next / add to end of queue |
+| `Esc` | Close search, then close popup |
+| `p` `n` `b` | Play-pause, next, previous (back) |
+| `r` | Cycle repeat: off → all → one |
+| `f` | Love / un-love the current song |
 
 Settings (`shell.json` entry): `showTitle` (bool), `maxLabelWidth` (px).
+
+## Media keys: Apple Music first
+
+Add to `~/.config/hypr/bindings.lua`:
+
+```lua
+local am_key = os.getenv("HOME") .. "/.config/omarchy/plugins/diegohades.apple-music/bin/apple-music-key"
+for _, k in ipairs({ "XF86AudioPlay", "XF86AudioPause", "XF86AudioNext", "XF86AudioPrev",
+                     "ALT + XF86AudioPlay", "ALT + SHIFT + XF86AudioPlay" }) do hl.unbind(k) end
+o.bind("XF86AudioPlay",  "Play/pause (Apple Music first)", am_key .. " playPause", { locked = true })
+o.bind("XF86AudioPause", "Play/pause (Apple Music first)", am_key .. " playPause", { locked = true })
+o.bind("XF86AudioNext",  "Next track (Apple Music first)", am_key .. " next",      { locked = true })
+o.bind("ALT + XF86AudioPlay", "Next track (Apple Music first)", am_key .. " next", { locked = true })
+o.bind("XF86AudioPrev",  "Previous track (Apple Music first)", am_key .. " previous", { locked = true })
+o.bind("ALT + SHIFT + XF86AudioPlay", "Previous track (Apple Music first)", am_key .. " previous", { locked = true })
+```
+
+Rule: if Apple Music is playing, the key goes to it. If something else is
+playing (a video) and Apple Music is paused, the key goes to that instead.
+Otherwise it resumes Apple Music. If the plugin isn't loaded, `apple-music-key`
+falls back to Omarchy's own media service, so the keys never go dead.
+`Shift` + play still switches the media source (Omarchy default).
 
 ## IPC — use in Hyprland keybindings
 
 ```bash
 omarchy-shell apple-music launch
-omarchy-shell apple-music playPause
-omarchy-shell apple-music next
-omarchy-shell apple-music previous
-omarchy-shell apple-music status   # JSON, includes previous/next
-omarchy-shell apple-music queue    # JSON: previous, current, next, upcoming[]
-omarchy-shell apple-music playIndex 7   # jump to queue index
-omarchy-shell apple-music shuffleLibrary   # random mix of whole library
-omarchy-shell apple-music shuffle       # toggle queue shuffle; prints on/off
+omarchy-shell apple-music playPause | next | previous
+omarchy-shell apple-music mediaKey playPause   # Apple Music first, else system player
+omarchy-shell apple-music status               # JSON
+omarchy-shell apple-music queue                # JSON: previous, current, next, upcoming[]
+omarchy-shell apple-music playIndex 7          # jump to queue index
+omarchy-shell apple-music shuffleLibrary       # random mix of whole library
+omarchy-shell apple-music shuffle              # toggle queue shuffle; prints on/off
 omarchy-shell apple-music setShuffle true
-omarchy-shell apple-music seek 90       # seconds into current track
+omarchy-shell apple-music repeat               # cycle off -> all -> one
+omarchy-shell apple-music setRepeat 2          # 0 off, 1 one, 2 all
+omarchy-shell apple-music like                 # toggle Love
+omarchy-shell apple-music dislike              # toggle Suggest less
+omarchy-shell apple-music addToLibrary
+omarchy-shell apple-music search "in flames"   # then: searchResults (JSON)
+omarchy-shell apple-music playItem albums 1497661496 now   # now | next | later
+omarchy-shell apple-music hide | show | toggleWindow
+omarchy-shell apple-music seek 90              # seconds into current track
 omarchy-shell apple-music quit
 ```
 
 ## Launcher script
 
-`bin/apple-music` launches or focuses the app; `--pid` prints the main PID,
-`--quit` closes it, `--queue` prints the queue JSON, `--play-index N` jumps
-to a queue entry, `--shuffle [on|off|toggle]`, `--shuffle-library`, `--seek SECONDS`. Override the profile dir with `APPLE_MUSIC_DATA_DIR`.
+`bin/apple-music` launches or focuses the app (and un-hides it). Other flags:
+`--pid`, `--probe`, `--quit`, `--hide`, `--show`, `--queue`, `--search-results`,
+`--play-index N`, `--shuffle [on|off]`, `--shuffle-library`, `--repeat [off|one|all]`,
+`--rate like|dislike|clear`, `--add-to-library`, `--search ID TERM`,
+`--play-item KIND ID now|next|later`, `--seek SECONDS`.
+Override the profile dir with `APPLE_MUSIC_DATA_DIR`.
 
 ## How it works
 
@@ -74,21 +122,41 @@ main process. Chromium publishes MPRIS as
 `org.mpris.MediaPlayer2.chromium.instance<PID>`; the service matches that PID,
 so only the Apple Music window is controlled.
 
-MPRIS has no queue, so the launcher also loads a small bundled extension
-(`extension/`, only into this dedicated profile). It reads MusicKit's queue
-inside the page and sends it over Chrome native messaging to
+MPRIS has no queue, search or ratings, so the launcher also loads a small bundled
+extension (`extension/`, only into this dedicated profile). It uses MusicKit
+inside the page and sends state over Chrome native messaging to
 `bin/apple-music-bridge`, which writes
-`$XDG_RUNTIME_DIR/omarchy-apple-music/queue-<PID>.json` and relays jump commands
-from the `commands-<PID>` FIFO. The native-host manifest is written into the
-dedicated profile, so your normal Chromium profile is untouched. Why a separate library mix: the web player only loads ~50 songs of the
+`$XDG_RUNTIME_DIR/omarchy-apple-music/queue-<PID>.json` (and `search-<PID>.json`)
+and relays commands from the `commands-<PID>` FIFO. The native-host manifest is
+written into the dedicated profile, so your normal Chromium profile is untouched.
+
+Why a separate library mix: the web player only loads ~50 songs of the
 alphabetical "Songs" list into the queue, so plain shuffle only reorders
 those. The mix samples 40 random spots across the whole library instead.
 
 The launcher passes `--autoplay-policy=no-user-gesture-required` so bar
 buttons can start playback without clicking inside the window first.
 
-Existing
-Apple Music windows need one restart after updating to pick up the extension.
+Existing Apple Music windows need one restart after updating to pick up
+extension changes.
+
+## Tests
+
+```bash
+tests/run.sh          # offline: syntax, qmllint, JS + Python unit tests, launcher, plugin validate
+tests/run.sh --live   # also drives the running Apple Music (undoes its own changes)
+```
+
+| Suite | What it covers |
+|---|---|
+| `tests/core.test.mjs` | Queue snapshot, mix sampling, search normalisation, command validation (the logic in the page) |
+| `tests/logic.test.mjs` | Repeat cycle, rating toggles, media-key routing, search sections, artwork allow-list, icons |
+| `tests/test_bridge.py` | Bridge framing, size limit, file permissions, symlink refusal, command filtering, a real end-to-end process run; also checks the Python and JS validators agree |
+| `tests/launcher.test.sh` | The exact JSON each launcher flag sends, and that bad input is rejected |
+| `tests/live.sh` | Repeat, like/dislike, search, play next, hide/show, media keys, mix, against the real app |
+
+Pure logic lives in `extension/core.js` and `Logic.js` so it can be tested
+without a browser or the shell.
 
 ## License
 
@@ -101,6 +169,8 @@ See [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md): a lesson-by-lesson tour of the c
 ## Security notes
 
 - No network listeners, no `sudo`/`pkexec`, no systemd units, no downloads, no bundled binaries.
-- Runtime state (queue JSON + command FIFO) lives only in the owner-only `$XDG_RUNTIME_DIR/omarchy-apple-music` (`0700`); the bridge refuses to start without it.
+- Runtime state (queue/search JSON + command FIFO) lives only in the owner-only `$XDG_RUNTIME_DIR/omarchy-apple-music` (`0700`); the bridge refuses to start without it, and refuses a symlinked state dir.
 - The extension and native-messaging host are installed only into the plugin's dedicated Chromium profile; your regular browser profile is untouched.
-- Data coming from the web page is treated as untrusted: displayed as plain text, artwork loaded only from Apple's CDN, bridge messages size-limited and validated.
+- Commands are validated three times (launcher, bridge, page) against a fixed allow-list; unknown actions and malformed ids are dropped.
+- Apple Music tokens stay inside the page. Only results (titles, ids, artwork URLs) reach the bar.
+- Data coming from the web page is treated as untrusted: displayed as plain text, artwork loaded only from Apple's CDN, bridge messages size-limited.

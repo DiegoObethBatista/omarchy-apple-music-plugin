@@ -1,8 +1,9 @@
 #!/bin/bash
-# Launch (or focus) Apple Music as a dedicated Chromium web app.
-# A separate --user-data-dir gives it its own browser process, so its MPRIS
-# player is distinct from Brave/other tabs and the bar plugin can find it.
-# The bundled extension publishes the queue (previous/next) to the bar.
+# Launch (or focus) Apple Music as a dedicated Chromium web app, and send it
+# commands. A separate --user-data-dir gives it its own browser process, so its
+# MPRIS player is distinct from Brave/other tabs and the bar plugin can find it.
+# The bundled extension publishes the player state to the bar via
+# bin/apple-music-bridge and runs the commands written to its FIFO.
 
 PLUGIN_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 DATA_DIR="${APPLE_MUSIC_DATA_DIR:-$HOME/.local/share/omarchy-apple-music}"
@@ -11,53 +12,118 @@ HOST_NAME="io.omarchy.apple_music"
 # Runtime state (queue JSON + command FIFO) lives only in the owner-only
 # $XDG_RUNTIME_DIR, never in shared /tmp.
 STATE_DIR="${XDG_RUNTIME_DIR:+$XDG_RUNTIME_DIR/omarchy-apple-music}"
+HIDE_WS="special:apple-music"          # hidden workspace: window gone, music keeps playing
 URL="https://music.apple.com/"
-mkdir -p "$DATA_DIR"
+
+usage() {
+  cat >&2 <<'EOF'
+usage: apple-music [URL]                  launch or focus
+       apple-music --quit | --pid | --probe | --queue | --search-results
+       apple-music --hide | --show | --toggle-window
+       apple-music --play-index N | --seek SECONDS
+       apple-music --shuffle [on|off|toggle] | --shuffle-library
+       apple-music --repeat [off|one|all|cycle]
+       apple-music --rate like|dislike|clear | --add-to-library
+       apple-music --search ID TERM
+       apple-music --play-item KIND ID now|next|later
+EOF
+  exit 2
+}
+
+app_pid() { pgrep -of -- "--user-data-dir=$DATA_DIR"; }
+
+# Hyprland address of the Apple Music window (class chrome-music.apple.com__-…).
+# Silent when Hyprland isn't reachable (tests, TTY): no window.
+window_addr() {
+  hyprctl clients -j 2>/dev/null |
+    jq -r '[.[] | select(.class | test("music\\.apple\\.com"; "i"))][0].address // empty' 2>/dev/null
+}
+window_ws() {
+  hyprctl clients -j 2>/dev/null |
+    jq -r --arg a "$1" '.[] | select(.address == $a) | .workspace.name' 2>/dev/null
+}
+
+# Write one JSON command line to the bridge FIFO of the running app.
+send() {
+  [[ -n $STATE_DIR ]] || { echo "XDG_RUNTIME_DIR is not set" >&2; exit 1; }
+  local pid fifo
+  pid=$(app_pid) || exit 1
+  fifo="$STATE_DIR/commands-$pid"
+  [[ -p $fifo ]] || exit 1
+  timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "$1" "$fifo"
+  exit $?
+}
+
+# Escape a string for inclusion in JSON (jq does it properly).
+json_str() { jq -Rn --arg s "$1" '$s'; }
+
+hide_window() {
+  local addr; addr=$(window_addr); [[ -n $addr ]] || exit 1
+  hyprctl dispatch "hl.dsp.window.move({ workspace = \"$HIDE_WS\", follow = false, window = \"address:$addr\" })" >/dev/null
+}
+
+show_window() {
+  local addr ws; addr=$(window_addr); [[ -n $addr ]] || exit 1
+  if [[ $(window_ws "$addr") == "$HIDE_WS" ]]; then
+    ws=$(hyprctl activeworkspace -j | jq -r .id)
+    hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = true, window = \"address:$addr\" })" >/dev/null
+  fi
+  hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null
+}
 
 case "${1:-}" in
+  -h|--help) usage ;;
   --quit)
     pkill -f -- "--user-data-dir=$DATA_DIR" && exit 0 || exit 1 ;;
   --pid)
-    pgrep -of -- "--user-data-dir=$DATA_DIR" ; exit $? ;;
-  --play-index|--seek|--shuffle|--shuffle-library|--queue)
-    [[ -n $STATE_DIR ]] || { echo "XDG_RUNTIME_DIR is not set" >&2; exit 1; } ;;&
+    app_pid; exit $? ;;
+  --probe)
+    # "PID visible|hidden|none" in one call, for the bar's poll timer.
+    pid=$(app_pid) || { echo "0 none"; exit 0; }
+    addr=$(window_addr)
+    if [[ -z $addr ]]; then echo "$pid none"
+    elif [[ $(window_ws "$addr") == "$HIDE_WS" ]]; then echo "$pid hidden"
+    else echo "$pid visible"; fi
+    exit 0 ;;
+  --queue|--search-results)
+    [[ -n $STATE_DIR ]] || { echo "XDG_RUNTIME_DIR is not set" >&2; exit 1; }
+    pid=$(app_pid) || exit 1
+    [[ $1 == --queue ]] && f="queue-$pid.json" || f="search-$pid.json"
+    cat "$STATE_DIR/$f" 2>/dev/null; exit $? ;;
+  --hide) hide_window; exit $? ;;
+  --show) show_window; exit $? ;;
+  --toggle-window)
+    addr=$(window_addr); [[ -n $addr ]] || exit 1
+    if [[ $(window_ws "$addr") == "$HIDE_WS" ]]; then show_window; else hide_window; fi
+    exit $? ;;
   --play-index)
-    # Jump to a queue entry via the bridge's per-browser command FIFO.
-    [[ ${2:-} =~ ^[0-9]+$ ]] || { echo "usage: $0 --play-index N" >&2; exit 2; }
-    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    fifo="$STATE_DIR/commands-$pid"
-    [[ -p $fifo ]] || exit 1
-    timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"playIndex\",\"index\":$2}" "$fifo"
-    exit $? ;;
+    [[ ${2:-} =~ ^[0-9]+$ ]] || usage
+    send "{\"action\":\"playIndex\",\"index\":$2}" ;;
   --seek)
-    # Seek within the current track (seconds) via MusicKit.
-    [[ ${2:-} =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "usage: $0 --seek SECONDS" >&2; exit 2; }
-    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    fifo="$STATE_DIR/commands-$pid"
-    [[ -p $fifo ]] || exit 1
-    timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"seek\",\"seconds\":$2}" "$fifo"
-    exit $? ;;
+    [[ ${2:-} =~ ^[0-9]+(\.[0-9]+)?$ ]] || usage
+    send "{\"action\":\"seek\",\"seconds\":$2}" ;;
   --shuffle)
-    # Shuffle via MusicKit: on | off | toggle (default).
-    case "${2:-toggle}" in on) arg=',"on":true' ;; off) arg=',"on":false' ;; toggle) arg='' ;;
-      *) echo "usage: $0 --shuffle [on|off|toggle]" >&2; exit 2 ;; esac
-    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    fifo="$STATE_DIR/commands-$pid"
-    [[ -p $fifo ]] || exit 1
-    timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "{\"action\":\"shuffle\"$arg}" "$fifo"
-    exit $? ;;
+    case "${2:-toggle}" in on) arg=',"on":true' ;; off) arg=',"on":false' ;; toggle) arg='' ;; *) usage ;; esac
+    send "{\"action\":\"shuffle\"$arg}" ;;
   --shuffle-library)
-    # Random mix from the whole library (starts playing).
-    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    fifo="$STATE_DIR/commands-$pid"
-    [[ -p $fifo ]] || exit 1
-    timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ '{"action":"shuffleLibrary"}' "$fifo"
-    exit $? ;;
-  --queue)
-    pid=$(pgrep -of -- "--user-data-dir=$DATA_DIR") || exit 1
-    cat "$STATE_DIR/queue-$pid.json" 2>/dev/null
-    exit $? ;;
+    send '{"action":"shuffleLibrary"}' ;;
+  --repeat)
+    case "${2:-cycle}" in off) arg=',"mode":0' ;; one) arg=',"mode":1' ;; all) arg=',"mode":2' ;; cycle) arg='' ;; *) usage ;; esac
+    send "{\"action\":\"repeat\"$arg}" ;;
+  --rate)
+    case "${2:-}" in like) v=1 ;; dislike) v=-1 ;; clear) v=0 ;; *) usage ;; esac
+    send "{\"action\":\"rate\",\"value\":$v}" ;;
+  --add-to-library)
+    send '{"action":"addToLibrary"}' ;;
+  --search)
+    [[ ${2:-} =~ ^[0-9]+$ && -n ${3:-} ]] || usage
+    send "{\"action\":\"search\",\"id\":$2,\"term\":$(json_str "$3")}" ;;
+  --play-item)
+    [[ ${2:-} =~ ^(library-)?(songs|albums|playlists)$ && ${3:-} =~ ^[A-Za-z0-9._-]{1,64}$ && ${4:-} =~ ^(now|next|later)$ ]] || usage
+    send "{\"action\":\"playItem\",\"kind\":\"$2\",\"id\":\"$3\",\"mode\":\"$4\"}" ;;
   http*) URL="$1" ;;
+  "") ;;
+  *) usage ;;
 esac
 
 # Native-messaging host manifest lives inside the dedicated profile, so it
@@ -74,12 +140,8 @@ cat > "$NM_DIR/$HOST_NAME.json" <<EOF
 }
 EOF
 
-if pgrep -f -- "--user-data-dir=$DATA_DIR" >/dev/null; then
-  addr=$(hyprctl clients -j | jq -r '.[] | select(.class | test("music\\.apple\\.com"; "i")) | .address' | head -n1)
-  if [[ -n $addr ]]; then
-    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null 2>&1 || hyprctl dispatch focuswindow "address:$addr" >/dev/null
-    exit 0
-  fi
+if app_pid >/dev/null; then
+  [[ -n $(window_addr) ]] && { show_window; exit 0; }
 fi
 
 exec setsid uwsm-app -- chromium \

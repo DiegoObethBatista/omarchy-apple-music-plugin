@@ -1,14 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Omarchy Apple Music Bridge",
-  "version": "1.0.0",
-  "description": "Publishes the Apple Music queue (previous/next) to the Omarchy bar.",
+  "version": "1.1.0",
+  "description": "Publishes the Apple Music player state to the Omarchy bar and runs its commands.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuZCVS6s5YuB/9uNylc2N7kNDhQJVVCZHOgT7wbA3iNvILhDrp8Ed+4NMjCH4iMYEZGzNtrKiESbDfMu+F9+n6J45Lc7ZhdwRm6Q+iIgGeqzW+UbHqYcO5h9Q36KTwWoEwsq800oSYppdoLIt/SCd5FniFI8ZRHhuVFAhOuk85NngFw4jF25CuYa4u7TQDWbZkGBpfgbbs8jJ2BT3fudBXpod8B3QTv63rwUzCAbzWADEUP6ebCdmP1hBaabxhrFi25wtTLKeD7cpkO4jxS5ik32qS+mmfnGgN+IMEHrcRTer1vZPQlJbO7HKQ1M4Utt2lr+oFK8pCXgUDGeJdb3SZwIDAQAB",
   "permissions": ["nativeMessaging"],
   "host_permissions": ["https://music.apple.com/*"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
-    { "matches": ["https://music.apple.com/*"], "js": ["page.js"], "world": "MAIN", "run_at": "document_idle" },
+    { "matches": ["https://music.apple.com/*"], "js": ["core.js", "page.js"], "world": "MAIN", "run_at": "document_idle" },
     { "matches": ["https://music.apple.com/*"], "js": ["relay.js"], "run_at": "document_idle" }
   ]
 }

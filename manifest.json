@@ -2,11 +2,14 @@
   "schemaVersion": 1,
   "id": "diegohades.apple-music",
   "name": "Apple Music",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "diegohades",
   "license": "MIT",
   "description": "Apple Music on Omarchy: launches music.apple.com as a dedicated Chromium app and controls it from the bar.",
-  "kinds": ["service", "bar-widget"],
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
   "entryPoints": {
     "service": "Service.qml",
     "barWidget": "BarWidget.qml"
@@ -22,8 +25,21 @@
       "maxLabelWidth": 180
     },
     "schema": [
-      { "key": "showTitle", "type": "boolean", "label": "Show track on the bar", "defaultValue": true },
-      { "key": "maxLabelWidth", "type": "integer", "label": "Max label width", "min": 60, "max": 400, "step": 10, "defaultValue": 180 }
+      {
+        "key": "showTitle",
+        "type": "boolean",
+        "label": "Show track on the bar",
+        "defaultValue": true
+      },
+      {
+        "key": "maxLabelWidth",
+        "type": "integer",
+        "label": "Max label width",
+        "min": 60,
+        "max": 400,
+        "step": 10,
+        "defaultValue": 180
+      }
     ]
   }
 }

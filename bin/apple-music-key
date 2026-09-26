@@ -1,0 +1,14 @@
+#!/bin/bash
+# Media-key entry point: prefer Apple Music, fall back to Omarchy's media
+# service. Bound in ~/.config/hypr/bindings.lua. Safe if the plugin is
+# disabled or the shell is restarting: the keys still work.
+#   apple-music-key playPause|next|previous
+case ${1:-} in
+  playPause|next|previous) ;;
+  *) echo "usage: apple-music-key playPause|next|previous" >&2; exit 2 ;;
+esac
+out=$(timeout 2 omarchy-shell apple-music mediaKey "$1" 2>/dev/null)
+case $out in
+  apple|system) exit 0 ;;                       # handled (system = plugin already forwarded it)
+  *) exec omarchy-shell media "$1" ;;           # plugin missing or unresponsive
+esac

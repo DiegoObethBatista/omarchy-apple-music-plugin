@@ -415,24 +415,66 @@ work", check first that the new code is actually running.
 
 ---
 
-## 11. Your turn — build the Repeat button
+## 11. Read one feature end to end: Repeat
 
-The best way to learn it is to add a feature yourself. MusicKit has
-`mk.repeatMode`: `0` = off, `1` = repeat one, `2` = repeat all. The recipe
-follows the exact path shuffle took:
+Repeat is the smallest complete feature, so it is the best one to trace. Open
+each file and find the line; every feature (like, search, hide) follows the
+same path.
 
-1. **`page.js`**: `snapshot()` already publishes `repeat: mk.repeatMode`. Add a
-   `"repeat"` action in the message listener that cycles `0 → 2 → 1 → 0`.
-2. **`relay.js`**: nothing to change (it forwards any `action`).
-3. **`bin/apple-music-bridge`**: add `"repeat"` to the allowed actions list.
-4. **`bin/apple-music`**: add a `--repeat)` case, modelled on `--shuffle-library`.
-5. **`Service.qml`**: `readonly property int repeat: queue ? queue.repeat : 0`, a
-   `cycleRepeat()` function, and `function repeat(): string` in `IpcHandler`.
-6. **`BarWidget.qml`**: a `Button` next to shuffle. Glyph `󰑗` (off/all) or `󰑘`
-   (one), accent-colored when not 0.
-7. **Test in order**: restart the Apple Music window (quit it from the popup, then
-   reopen it) → `bin/apple-music --repeat` → `bin/apple-music --queue | jq .repeat` →
-   `omarchy restart shell` → click the button.
-8. **Ship it**: `git add -A && git commit -m "Add repeat" && git push`.
+| Step | File | Look for |
+|---|---|---|
+| 1. Button | `BarWidget.qml` | `iconText: Logic.repeatIcon(...)` → `onClicked: root.am.cycleRepeat()` |
+| 2. Decision | `Logic.js` | `nextRepeatMode`: off (0) → all (2) → one (1) → off |
+| 3. Service | `Service.qml` | `cycleRepeat()` → `run(["--repeat", ...])` (commands queue up in `cmdQueue`) |
+| 4. Launcher | `bin/apple-music` | `--repeat)` case: validates `off\|one\|all`, writes `{"action":"repeat","mode":N}` to the FIFO |
+| 5. Bridge | `bin/apple-music-bridge` | `sanitize_command`: only known actions and value ranges pass |
+| 6. Extension | `relay.js` → `page.js` | `run(cmd)`: `mk.repeatMode = ...` |
+| 7. Back to the bar | `core.js` `snapshot()` | publishes `repeat`, bridge writes `queue-<PID>.json`, Service reads `queue.repeat` |
+
+Notice step 5 and step 6 **both** validate (`sanitize_command` in Python,
+`sanitizeCommand` in `core.js`). `tests/test_bridge.py` checks the two agree.
+
+### Where the other new features live
+
+| Feature | Key code |
+|---|---|
+| Love / Suggest less / Add to library | `page.js` `rate()`, `addToLibrary()`, `loadFacts()` (fetches the current song's rating once per song) |
+| Search | `page.js` `search()` → `core.js` `normalizeSearch()` → `search-<PID>.json` → `Logic.searchSections()` → `SearchRow.qml` |
+| Play now / next / later | `core.js` `queueDescriptor()` + `page.js` `playItem()` (`setQueue`, `playNext`, `playLater`) |
+| Hide window | `bin/apple-music` `--hide` / `--show` (Hyprland `special:apple-music` workspace), `--probe` reports state |
+| Media keys | `bin/apple-music-key` → `Service.mediaKey()` → `Logic.mediaKeyTarget()` |
+| Typing in the popup | `BarWidget.qml` uses `KeyboardPanel` (not `PopupCard`) + `PanelKeyCatcher` |
+
+## 12. Tests: how to know you didn't break it
+
+```bash
+tests/run.sh          # ~5 s, no Apple Music needed
+tests/run.sh --live   # drives the real app
+```
+
+The trick that makes testing possible: **pure logic is kept out of the
+UI and browser code.** `core.js` and `Logic.js` take plain data and return
+plain data, so Node can test them without MusicKit or Quickshell. The launcher
+test fakes a "running app" with `exec -a` (a `sleep` process whose command
+line looks like Chromium) and reads what lands in the FIFO.
+
+Exercise: add a test first, watch it fail, then make it pass.
+Try: "`--repeat` with no argument cycles" is covered, but "`setRepeat 5` is
+rejected by the shell IPC" is not. Where would you check it?
+
+## 13. Your turn: build the Autoplay toggle
+
+MusicKit has `mk.autoplayEnabled` (similar songs after the queue ends).
+Follow the Repeat table above:
+
+0. `core.js` `snapshot()`: publish `autoplay: !!mk.autoplayEnabled` (+ a test).
+1. `core.js` `sanitizeCommand`: accept `{action:"autoplay", on:bool}` (+ a test in `tests/core.test.mjs`).
+2. `page.js` `run()`: `mk.autoplayEnabled = cmd.on`.
+3. `bin/apple-music-bridge` `sanitize_command`: same rule (+ `tests/test_bridge.py`).
+4. `bin/apple-music`: `--autoplay on|off` (+ `tests/launcher.test.sh`).
+5. `Service.qml`: `readonly property bool autoplay`, `toggleAutoplay()`, IPC method.
+6. `BarWidget.qml`: a button, accent-coloured when on. Pick a glyph with
+   `fc-query` or the Nerd Fonts cheat sheet, and add it to `Logic.G` (the icon test checks it).
+7. `tests/run.sh`, restart the Apple Music window, `tests/run.sh --live`.
 
 Stuck at a step? Ask Hades for a hint on that step instead of the answer.
