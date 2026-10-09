@@ -8,7 +8,7 @@ host -> Chromium (stdout): {"type":"command",...}            <- lines read from 
 Every command is rebuilt field-by-field by sanitize_command() before it is
 forwarded; page.js validates again with the same rules (defence in depth).
 """
-import json, os, re, struct, sys, threading
+import json, os, re, stat, struct, sys, threading
 
 MAX_MESSAGE = 256 * 1024           # a real snapshot is ~3 KB, search ~6 KB
 KINDS = ("songs", "albums", "playlists", "library-songs", "library-albums", "library-playlists")
@@ -102,6 +102,13 @@ class Bridge:
         if os.path.islink(self.state_dir) or not os.path.isdir(self.state_dir) or st.st_uid != os.getuid():
             raise SystemExit("apple-music-bridge: refusing unsafe state dir " + self.state_dir)
         os.chmod(self.state_dir, 0o700)
+        # Anything other than our FIFO (stale file, symlink) would make
+        # command_loop re-read and re-send it in a busy loop: replace it.
+        try:
+            if not stat.S_ISFIFO(os.lstat(self.cmd_fifo).st_mode):
+                os.remove(self.cmd_fifo)
+        except FileNotFoundError:
+            pass
         if not os.path.exists(self.cmd_fifo):
             os.mkfifo(self.cmd_fifo, 0o600)
 

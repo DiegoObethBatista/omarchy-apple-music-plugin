@@ -73,6 +73,8 @@ check_rejected --rate love
 check_rejected --seek abc
 check_rejected --seek -5
 check_rejected --play-index 1x
+check_rejected --play-index 007
+check_rejected --seek 05
 check_rejected --play-item artists 123 now
 check_rejected --play-item songs '1;rm' now
 check_rejected --play-item songs 123 sometime

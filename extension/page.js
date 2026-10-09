@@ -52,8 +52,8 @@
   async function rate(value) {
     const cid = C.catalogIdOf(mk.queue.currentItem);
     if (!cid) throw new Error("not a catalog song");
-    if (value === 0) await amp("DELETE", "/v1/me/ratings/songs/" + cid);
-    else await amp("PUT", "/v1/me/ratings/songs/" + cid, { type: "rating", attributes: { value } });
+    if (value === 0) await amp("DELETE", "/v1/me/ratings/songs/" + encodeURIComponent(cid));
+    else await amp("PUT", "/v1/me/ratings/songs/" + encodeURIComponent(cid), { type: "rating", attributes: { value } });
     facts = Object.assign({}, facts, { catalogId: cid, rating: value });
   }
 
