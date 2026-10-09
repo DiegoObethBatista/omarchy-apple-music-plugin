@@ -1,0 +1,38 @@
+name: Bug report
+description: Something in the plugin doesn't work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Don't paste tokens, cookies, or files from `~/.local/share/omarchy-apple-music`. Security issues go through private reporting, not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Plugin (manifest.json), Omarchy, and `chromium --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: bridge
+    attributes:
+      label: Does the bar tooltip say "bridge not connected"?
+      options: ["No", "Yes", "Not sure"]
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output of `bash tests/run.sh` (optional)
+      render: text
