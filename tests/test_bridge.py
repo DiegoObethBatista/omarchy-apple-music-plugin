@@ -52,18 +52,30 @@ class Sanitize(unittest.TestCase):
 
     def test_same_rules_as_extension(self):
         """The Python and JS validators must agree (defence in depth)."""
-        cases = [
-            {"action": "rate", "value": 1}, {"action": "rate", "value": 2}, {"action": "repeat", "mode": 2},
-            {"action": "search", "term": "x", "id": 1}, {"action": "search", "term": "", "id": 1},
-            {"action": "playItem", "kind": "songs", "id": "123", "mode": "now"},
-            {"action": "playItem", "kind": "artists", "id": "123", "mode": "now"},
-            {"action": "seek", "seconds": 10}, {"action": "seek", "seconds": -1}, {"action": "nope"},
-        ]
+        with open(os.path.join(ROOT, "tests", "fixtures", "commands.json")) as f:
+            cases = json.load(f)
+        self.assertGreater(len(cases), 40)
         js = ("const C=require(%r);const cases=%s;"
               "process.stdout.write(JSON.stringify(cases.map(c=>C.sanitizeCommand(c))))") % (
             os.path.join(ROOT, "extension", "core.js"), json.dumps(cases))
         out = json.loads(subprocess.check_output(["node", "-e", js]))
         self.assertEqual(out, [bridge.sanitize_command(c) for c in cases])
+
+
+class WriteFailure(unittest.TestCase):
+    def test_unwritable_state_dir_does_not_raise(self):
+        with tempfile.TemporaryDirectory() as d:
+            b = bridge.Bridge(d, 4242, io.BytesIO())
+            b.state_dir = os.path.join(d, "missing")      # never created -> OSError on write
+            b.state_file = os.path.join(b.state_dir, "queue.json")
+            b.search_file = os.path.join(b.state_dir, "search.json")
+            real, sys.stderr = sys.stderr, io.StringIO()
+            try:
+                self.assertIsNone(b.handle_message({"type": "queue", "state": {"a": 1}}))
+                self.assertIsNone(b.handle_message({"type": "search", "results": {"a": 1}}))
+                self.assertIn("cannot write", sys.stderr.getvalue())
+            finally:
+                sys.stderr = real
 
 
 class Frames(unittest.TestCase):

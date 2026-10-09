@@ -24,6 +24,15 @@ omarchy plugin add https://github.com/DiegoObethBatista/omarchy-apple-music-plug
 
 Requires `chromium`, `jq` and `python3` (all standard on Omarchy).
 
+Tested with Chromium 152. The bridge extension is loaded with `--load-extension`
+(plus `--disable-features=DisableLoadExtensionCommandLineSwitch`), which Chromium
+is tightening. If a future build ignores it, the plugin degrades to play/pause
+and track info from MPRIS, and the bar tooltip reads "bridge not connected".
+
+The bridge calls Apple's web-player API (`amp-api.music.apple.com`) with the
+session tokens of the page you signed into, to rate songs, add to library and
+search. This is not an official Apple API; use it at your own discretion.
+
 Optional app-launcher entry:
 
 ```bash
@@ -36,6 +45,29 @@ Type=Application
 Categories=Audio;Music;Player;
 EOF
 ```
+
+## Remove
+
+1. If you added the media-key bindings, delete them from `~/.config/hypr/bindings.lua`
+   first: they call a script inside the plugin folder, so they stop working once it is gone.
+2. Quit Apple Music and remove the plugin:
+
+   ```bash
+   ~/.config/omarchy/plugins/diegohades.apple-music/bin/apple-music --quit
+   omarchy plugin remove diegohades.apple-music
+   ```
+
+3. Delete the dedicated Chromium profile. It holds your Apple Music sign-in
+   (cookies and session tokens) and the bridge's native-messaging manifest:
+
+   ```bash
+   rm -rf ~/.local/share/omarchy-apple-music
+   ```
+
+4. If you created the optional launcher entry: `rm ~/.local/share/applications/"Apple Music.desktop"`
+
+Runtime files in `$XDG_RUNTIME_DIR/omarchy-apple-music` are removed when the app
+closes and cleared at logout.
 
 ## Bar widget
 
@@ -190,7 +222,9 @@ See [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md): a lesson-by-lesson tour of the c
 
 ## Security notes
 
-- No network listeners, no `sudo`/`pkexec`, no systemd units, no downloads, no bundled binaries.
+- No sudo or pkexec is required. No network listeners, no system services, no downloads, no bundled binaries.
+- The dedicated Chromium profile is launched with `--load-extension` and `--disable-features=DisableLoadExtensionCommandLineSwitch` to load the bundled bridge extension, and with `--autoplay-policy=no-user-gesture-required`. These flags apply only to that profile; your regular browser is not affected.
+- The launcher only opens `https://music.apple.com/` URLs, since that profile has the extension loaded.
 - Runtime state (queue/search JSON + command FIFO) lives only in the owner-only `$XDG_RUNTIME_DIR/omarchy-apple-music` (`0700`); the bridge refuses to start without it, and refuses a symlinked state dir.
 - The extension and native-messaging host are installed only into the plugin's dedicated Chromium profile; your regular browser profile is untouched.
 - Commands are validated three times (launcher, bridge, page) against a fixed allow-list; unknown actions and malformed ids are dropped.

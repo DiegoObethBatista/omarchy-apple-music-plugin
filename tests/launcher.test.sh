@@ -81,8 +81,16 @@ check_rejected --play-item songs 123 sometime
 check_rejected --search notanumber term
 check_rejected --search 5
 check_rejected --bogus
+check_rejected http://music.apple.com/
+check_rejected https://evil.example/
+check_rejected https://music.apple.com.evil.example/
+check_rejected file:///etc/passwd
 
 echo "launcher: probe / not running"
+# Look-alike profile dirs must not match the running app: a shared prefix, or "."
+# standing in for any character in the regex.
+out=$(APPLE_MUSIC_DATA_DIR="$T/dat" "$L" --probe); [[ $out == "0 none" ]] && ok || bad "prefix dir matched: $out"
+out=$(APPLE_MUSIC_DATA_DIR="$T/d.ta" "$L" --probe); [[ $out == "0 none" ]] && ok || bad "regex dot matched: $out"
 out=$("$L" --probe); [[ $out == "$FAKE "* ]] && ok || bad "--probe with app running: $out"
 kill $FAKE 2>/dev/null; wait $FAKE 2>/dev/null
 out=$("$L" --probe); [[ $out == "0 none" ]] && ok || bad "--probe with app stopped: $out"

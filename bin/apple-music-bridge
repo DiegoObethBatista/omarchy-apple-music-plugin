@@ -8,7 +8,7 @@ host -> Chromium (stdout): {"type":"command",...}            <- lines read from 
 Every command is rebuilt field-by-field by sanitize_command() before it is
 forwarded; page.js validates again with the same rules (defence in depth).
 """
-import json, os, re, stat, struct, sys, threading
+import json, os, re, stat, struct, sys, threading, time
 
 MAX_MESSAGE = 256 * 1024           # a real snapshot is ~3 KB, search ~6 KB
 KINDS = ("songs", "albums", "playlists", "library-songs", "library-albums", "library-playlists")
@@ -137,12 +137,17 @@ class Bridge:
         if not isinstance(msg, dict):
             return None
         if msg.get("type") == "queue" and isinstance(msg.get("state"), dict):
-            atomic_write(self.state_file, msg["state"])
-            return self.state_file
-        if msg.get("type") == "search" and isinstance(msg.get("results"), dict):
-            atomic_write(self.search_file, msg["results"])
-            return self.search_file
-        return None
+            path, payload = self.state_file, msg["state"]
+        elif msg.get("type") == "search" and isinstance(msg.get("results"), dict):
+            path, payload = self.search_file, msg["results"]
+        else:
+            return None
+        try:
+            atomic_write(path, payload)
+        except OSError as e:                            # a failed write must not kill the host
+            sys.stderr.write("apple-music-bridge: cannot write %s: %s\n" % (path, e))
+            return None
+        return path
 
     def command_loop(self):
         while True:
@@ -150,8 +155,11 @@ class Bridge:
                 with open(self.cmd_fifo) as fifo:       # blocks until a writer appears
                     for line in fifo:
                         self.handle_command_line(line)
-            except OSError:
-                return
+            except OSError as e:
+                sys.stderr.write("apple-music-bridge: command FIFO error: %s\n" % e)
+                if not os.path.exists(self.cmd_fifo):   # removed at shutdown: stop
+                    return
+                time.sleep(1)                            # otherwise retry, don't drop commands for good
 
     def cleanup(self):
         for path in (self.state_file, self.search_file, self.cmd_fifo):
