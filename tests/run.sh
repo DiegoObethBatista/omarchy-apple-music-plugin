@@ -3,6 +3,7 @@
 #   tests/run.sh           unit + launcher + static checks (no Apple Music needed)
 #   tests/run.sh --live    also the live checks against the running app
 set -u
+export PYTHONDONTWRITEBYTECODE=1  # .pyc in the plugin dir would hot-reload the widget
 cd "$(dirname "$0")/.."
 status=0
 step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
