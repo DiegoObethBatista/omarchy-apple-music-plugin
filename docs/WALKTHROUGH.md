@@ -113,7 +113,7 @@ Other things worth noticing:
 - `uwsm-app --` — Omarchy's way of launching apps so systemd tracks them properly.
 - The `case "${1:-}" in` block turns the launcher into a mini CLI (`bin/apple-music --help`
   lists it all): `--probe`, `--pid`, `--quit`, `--queue`, `--play-index N`, `--seek S`,
-  `--shuffle`, `--repeat`, `--rate`, `--search`, `--play-item`, `--hide`/`--show` and more.
+  `--shuffle`, `--repeat`, `--rate`, `--search` (term on stdin), `--play-item`, `--hide`/`--show` and more.
   The shell calls these instead of doing file/FIFO work in QML (easier to test from a terminal).
   Every argument is checked with a strict regex before it becomes JSON (lesson 12).
 - `app_pid()` finds the browser with `pgrep -f`. The profile path is **regex-escaped
@@ -535,6 +535,7 @@ the rule is: **nothing that comes from the page or the FIFO is trusted.**
 |---|---|---|
 | A malformed or hostile command | Strict allow-list, checked three times | launcher regexes → `sanitize_command()` → `sanitizeCommand()` |
 | Shell injection via search terms or ids | Arguments passed as arrays, never a shell string; ids must match `^[A-Za-z0-9._-]{1,64}$` | `Service.qml` `run()`, launcher `--play-item` |
+| Other local users reading your searches | Any user can read every process's argv in `/proc`, so search text goes over **stdin** and pipes at every hop, never argv | `Service.qml` `run(args, input)` + `cmdProc.onStarted`, launcher `--search`, `send()` |
 | A huge or broken message from the extension | Size limit before reading, bad JSON skipped | `read_frame()` |
 | Another user reading or swapping runtime files | Owner-only `$XDG_RUNTIME_DIR`, no `/tmp` fallback, symlinks refused | `Bridge.prepare()` |
 | Another user reading the Apple sign-in | Profile created `0700`, cookies keyring-encrypted | launcher `NM_DIR` block, `--password-store` |

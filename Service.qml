@@ -103,17 +103,21 @@ Item {
 
   // ---- commands ------------------------------------------------------------------
   // Commands queue up so rapid clicks are never dropped while a previous
-  // launcher call is still running.
+  // launcher call is still running. `input` (optional) is sent on stdin:
+  // personal text like search terms must never be in argv, which any local
+  // user can read from /proc.
   property var cmdQueue: []
-  function run(args) {
-    root.cmdQueue = root.cmdQueue.concat([args])
+  function run(args, input) {
+    root.cmdQueue = root.cmdQueue.concat([{ args: args, input: input || "" }])
     if (!cmdProc.running) runNext()
   }
   function runNext() {
     if (root.cmdQueue.length === 0) return
-    var args = root.cmdQueue[0]
+    var next = root.cmdQueue[0]
     root.cmdQueue = root.cmdQueue.slice(1)
-    cmdProc.command = [root.launcher].concat(args)
+    cmdProc.input = next.input
+    cmdProc.stdinEnabled = next.input !== ""   // stdin only when there's something to send
+    cmdProc.command = [root.launcher].concat(next.args)
     cmdProc.running = true
   }
 
@@ -191,7 +195,7 @@ Item {
       return root.bridged
     }
     root.searching = true
-    run(["--search", String(root.searchId), term])
+    run(["--search", String(root.searchId)], term.replace(/[\r\n]+/g, " "))   // term on stdin, not argv
     return true
   }
   function clearSearch() { search("") }
@@ -291,7 +295,18 @@ Item {
     })
   }
 
-  Process { id: cmdProc; onExited: root.runNext() }
+  Process {
+    id: cmdProc
+    property string input: ""
+    stdinEnabled: false
+    onStarted: {
+      if (!stdinEnabled) return
+      write(input + "\n")
+      input = ""
+      stdinEnabled = false   // closes stdin: the launcher sees end-of-input right away
+    }
+    onExited: root.runNext()
+  }
 
   Timer { id: pendingTimeout; interval: 4000; onTriggered: root.pending = ({}) }
 
