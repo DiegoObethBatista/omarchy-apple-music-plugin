@@ -227,6 +227,7 @@ See [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md): a lesson-by-lesson tour of the c
 - The dedicated Chromium profile is launched with `--load-extension` to load the bundled bridge extension, and with `--autoplay-policy=no-user-gesture-required`. No Chromium security feature is turned off. These flags apply only to that profile; your regular browser is not affected.
 - The launcher only opens `https://music.apple.com/` URLs, since that profile has the extension loaded.
 - Runtime state (queue/search JSON + command FIFO) lives only in the owner-only `$XDG_RUNTIME_DIR/omarchy-apple-music` (`0700`); the bridge refuses to start without it, and refuses a symlinked state dir.
+- The dedicated profile (`~/.local/share/omarchy-apple-music`) is owner-only (`0700`) and uses the GNOME keyring (`--password-store=gnome-libsecret`) to encrypt its cookies. Like any browser, page storage is not encrypted on disk beyond full-disk encryption.
 - The extension and native-messaging host are installed only into the plugin's dedicated Chromium profile; your regular browser profile is untouched.
 - Commands are validated three times (launcher, bridge, page) against a fixed allow-list; unknown actions and malformed ids are dropped.
 - Apple Music tokens stay inside the page. Only results (titles, ids, artwork URLs) reach the bar.

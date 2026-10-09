@@ -86,6 +86,15 @@ check_rejected https://evil.example/
 check_rejected https://music.apple.com.evil.example/
 check_rejected file:///etc/passwd
 
+echo "launcher: profile dir"
+# Run the launch path with a fake setsid so no browser starts: an existing
+# world-readable profile dir is tightened and the host manifest is valid JSON.
+mkdir -p "$T/fakebin" "$T/data2"; chmod 755 "$T/data2"
+printf '#!/bin/sh\nexit 0\n' > "$T/fakebin/setsid"; chmod +x "$T/fakebin/setsid"
+PATH="$T/fakebin:$PATH" APPLE_MUSIC_DATA_DIR="$T/data2" "$L" >/dev/null 2>&1
+[[ $(stat -c %a "$T/data2") == 700 ]] && ok || bad "profile dir not owner-only: $(stat -c %a "$T/data2")"
+jq -e '.path | endswith("/bin/apple-music-bridge")' "$T/data2/NativeMessagingHosts/io.omarchy.apple_music.json" >/dev/null && ok || bad "native host manifest"
+
 echo "launcher: probe / not running"
 # Look-alike profile dirs must not match the running app: a shared prefix, or "."
 # standing in for any character in the regex.
