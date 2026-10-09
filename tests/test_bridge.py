@@ -100,6 +100,13 @@ class BridgeFiles(unittest.TestCase):
         self.assertTrue(stat.S_ISFIFO(os.stat(self.b.cmd_fifo).st_mode))
         self.assertEqual(stat.S_IMODE(os.stat(self.b.cmd_fifo).st_mode), 0o600)
 
+    def test_replaces_non_fifo_command_path(self):
+        os.remove(self.b.cmd_fifo)
+        with open(self.b.cmd_fifo, "w") as f:
+            f.write('{"action":"refresh"}\n')
+        self.b.prepare()
+        self.assertTrue(stat.S_ISFIFO(os.lstat(self.b.cmd_fifo).st_mode))
+
     def test_refuses_symlinked_state_dir(self):
         with tempfile.TemporaryDirectory() as rt, tempfile.TemporaryDirectory() as elsewhere:
             os.symlink(elsewhere, os.path.join(rt, "omarchy-apple-music"))
