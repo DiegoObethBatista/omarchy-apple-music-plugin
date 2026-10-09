@@ -27,7 +27,7 @@ send_and_read() {
   ( timeout 3 head -n1 "$FIFO" > "$out" ) &
   local reader=$!
   sleep 0.05
-  "$L" "$@" >/dev/null 2>&1
+  "$L" "$@" <<<"${STDIN-}" >/dev/null 2>&1
   local rc=$?
   wait $reader 2>/dev/null
   printf '%s|%s' "$rc" "$(cat "$out")"
@@ -42,7 +42,7 @@ check() {  # check 'expected json' args...
 }
 
 check_rejected() {  # args... must exit 2 (usage) and send nothing
-  "$L" "$@" >/dev/null 2>&1
+  "$L" "$@" <<<"${STDIN-}" >/dev/null 2>&1
   local rc=$?
   [[ $rc == 2 ]] && ok || bad "$* should be rejected (rc=$rc)"
 }
@@ -63,9 +63,10 @@ check '{"action":"seek","seconds":42}'              --seek 42
 check '{"action":"playIndex","index":7}'            --play-index 7
 check '{"action":"playItem","kind":"albums","id":"1497661496","mode":"next"}' --play-item albums 1497661496 next
 check '{"action":"playItem","kind":"library-playlists","id":"p.AbC_9","mode":"now"}' --play-item library-playlists p.AbC_9 now
-check '{"action":"search","id":3,"term":"in flames"}' --search 3 "in flames"
+# Search terms arrive on stdin, never as arguments (other users can read argv).
+STDIN="in flames" check '{"action":"search","id":3,"term":"in flames"}' --search 3
 # Quotes, backslashes and unicode in search terms must stay valid JSON.
-check '{"action":"search","id":4,"term":"Motörhead \"Ace\" \\ of"}' --search 4 'Motörhead "Ace" \ of'
+STDIN='Motörhead "Ace" \ of' check '{"action":"search","id":4,"term":"Motörhead \"Ace\" \\ of"}' --search 4
 
 echo "launcher: rejected input"
 check_rejected --repeat twice
@@ -78,13 +79,31 @@ check_rejected --seek 05
 check_rejected --play-item artists 123 now
 check_rejected --play-item songs '1;rm' now
 check_rejected --play-item songs 123 sometime
-check_rejected --search notanumber term
-check_rejected --search 5
+STDIN=term check_rejected --search notanumber
+STDIN=term check_rejected --search 007
+STDIN="" check_rejected --search 5
+STDIN="   " check_rejected --search 5
+check_rejected --search 5 "term on argv is refused"
 check_rejected --bogus
 check_rejected http://music.apple.com/
 check_rejected https://evil.example/
 check_rejected https://music.apple.com.evil.example/
 check_rejected file:///etc/passwd
+
+echo "launcher: search text never reaches argv"
+# Wrap every command the launcher may spawn and log its arguments; the search
+# term must reach the FIFO but never appear in any child's argv.
+SPY="$T/spy"; mkdir -p "$SPY"; : > "$T/argv.log"
+for c in jq timeout bash cat head pgrep; do
+  real=$(command -v "$c")
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nexec "%s" "$@"\n' "$T/argv.log" "$real" > "$SPY/$c"
+  chmod +x "$SPY/$c"
+done
+secret="my private search 7f3a"
+r=$(PATH="$SPY:$PATH" STDIN="$secret" send_and_read --search 9)
+[[ $r == "0|"*"$secret"* ]] && ok || bad "search via stdin did not reach the FIFO: $r"
+[[ -s "$T/argv.log" ]] && ok || bad "argv spy logged nothing (test is not exercising children)"
+grep -qF "$secret" "$T/argv.log" && bad "search text leaked into argv: $(grep -F "$secret" "$T/argv.log")" || ok
 
 echo "launcher: profile dir"
 # Run the launch path with a fake setsid so no browser starts: an existing

@@ -24,7 +24,7 @@ usage: apple-music [URL]                  launch or focus
        apple-music --shuffle [on|off|toggle] | --shuffle-library
        apple-music --repeat [off|one|all|cycle]
        apple-music --rate like|dislike|clear | --add-to-library
-       apple-music --search ID TERM
+       apple-music --search ID < TERM          (term on stdin, kept off argv)
        apple-music --play-item KIND ID now|next|later
 EOF
   exit 2
@@ -47,18 +47,18 @@ window_ws() {
 }
 
 # Write one JSON command line to the bridge FIFO of the running app.
+# The command goes over a pipe (printf is a builtin), never into a child's
+# argv: other local users can read every process's arguments from /proc.
 send() {
   [[ -n $STATE_DIR ]] || { echo "XDG_RUNTIME_DIR is not set" >&2; exit 1; }
   local pid fifo
   pid=$(app_pid) || exit 1
   fifo="$STATE_DIR/commands-$pid"
   [[ -p $fifo ]] || exit 1
-  timeout 2 bash -c 'printf "%s\n" "$1" > "$2"' _ "$1" "$fifo"
+  printf '%s\n' "$1" | timeout 2 bash -c 'cat > "$1"' _ "$fifo"
   exit $?
 }
 
-# Escape a string for inclusion in JSON (jq does it properly).
-json_str() { jq -Rn --arg s "$1" '$s'; }
 
 hide_window() {
   local addr; addr=$(window_addr); [[ -n $addr ]] || exit 1
@@ -119,8 +119,12 @@ case "${1:-}" in
   --add-to-library)
     send '{"action":"addToLibrary"}' ;;
   --search)
-    [[ ${2:-} =~ ^[0-9]+$ && -n ${3:-} ]] || usage
-    send "{\"action\":\"search\",\"id\":$2,\"term\":$(json_str "$3")}" ;;
+    # The search term is personal: it arrives on stdin (one line) and is turned
+    # into JSON by jq reading a pipe, so it never appears in any process's argv.
+    [[ $# -eq 2 && $2 =~ ^(0|[1-9][0-9]*)$ ]] || usage
+    IFS= read -r -t 2 -n 1024 term || [[ -n ${term:-} ]] || usage
+    json=$(printf '%s' "$term" | jq -Rsce --argjson id "$2" 'select(test("\\S")) | {action: "search", id: $id, term: .}') || usage
+    send "$json" ;;
   --play-item)
     [[ ${2:-} =~ ^(library-)?(songs|albums|playlists)$ && ${3:-} =~ ^[A-Za-z0-9._-]{1,64}$ && ${4:-} =~ ^(now|next|later)$ ]] || usage
     send "{\"action\":\"playItem\",\"kind\":\"$2\",\"id\":\"$3\",\"mode\":\"$4\"}" ;;

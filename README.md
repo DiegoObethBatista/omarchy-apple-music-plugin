@@ -148,7 +148,7 @@ omarchy-shell apple-music quit
 `bin/apple-music` launches or focuses the app (and un-hides it). Other flags:
 `--pid`, `--probe`, `--quit`, `--hide`, `--show`, `--queue`, `--search-results`,
 `--play-index N`, `--shuffle [on|off]`, `--shuffle-library`, `--repeat [off|one|all]`,
-`--rate like|dislike|clear`, `--add-to-library`, `--search ID TERM`,
+`--rate like|dislike|clear`, `--add-to-library`, `--search ID` (term on stdin),
 `--play-item KIND ID now|next|later`, `--seek SECONDS`.
 Override the profile dir with `APPLE_MUSIC_DATA_DIR`.
 
@@ -234,5 +234,6 @@ See [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md): a lesson-by-lesson tour of the c
 - The dedicated profile (`~/.local/share/omarchy-apple-music`) is owner-only (`0700`) and uses the GNOME keyring (`--password-store=gnome-libsecret`) to encrypt its cookies. Like any browser, page storage is not encrypted on disk beyond full-disk encryption.
 - The extension and native-messaging host are installed only into the plugin's dedicated Chromium profile; your regular browser profile is untouched.
 - Commands are validated three times (launcher, bridge, page) against a fixed allow-list; unknown actions and malformed ids are dropped.
+- Search text is personal, so it never appears in process arguments (readable by other local users via `/proc`): the popup sends it to the launcher on stdin, and the launcher pipes it through `jq` and into the private FIFO.
 - Apple Music tokens stay inside the page. Only results (titles, ids, artwork URLs) reach the bar.
 - Data coming from the web page is treated as untrusted: displayed as plain text, artwork loaded only from Apple's CDN, bridge messages size-limited.
