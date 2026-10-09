@@ -5,6 +5,8 @@ A lesson-by-lesson tour of how this plugin is built. Each lesson has:
 
 Do the "Try it" boxes — running things is how this sticks.
 All paths are relative to `~/.config/omarchy/plugins/diegohades.apple-music/`.
+Code is referenced by **function or section name** rather than line number, so
+use your editor's search (e.g. search for `function seekTo`) to jump there.
 
 ---
 
@@ -37,7 +39,7 @@ The plugin has **two ways of talking to Apple Music**, because one wasn't enough
   Chromium reports broken time values for Apple Music (lesson 5). So we reach
   *into the page* and ask Apple's own player, MusicKit.
 
-File map (≈1,300 lines total):
+File map (≈2,200 lines of plugin code, plus tests):
 
 | File | Language | Role |
 |---|---|---|
@@ -49,6 +51,8 @@ File map (≈1,300 lines total):
 | `SearchRow.qml`, `QueueRow.qml` | QML | One search result / one queue track |
 | `extension/*` | JS | Chromium extension that reads MusicKit |
 | `bin/apple-music-bridge` | Python | Pipe between the extension and the shell |
+| `bin/apple-music-key` | Bash | Media-key entry point (Apple Music first, then the system) |
+| `Logic.js` | JS | Pure helpers for the QML side (icons, repeat cycle, parsing), unit-tested |
 
 ---
 
@@ -85,15 +89,19 @@ visual and can be placed (or not) on the bar. Separating them means
 Everything starts here. The key idea is one flag:
 
 ```bash
-DATA_DIR="$HOME/.local/share/omarchy-apple-music"
+DATA_DIR="${APPLE_MUSIC_DATA_DIR:-$HOME/.local/share/omarchy-apple-music}"
 ...
 exec setsid uwsm-app -- chromium \
   --user-data-dir="$DATA_DIR" \        # ← the key idea
   --app="$URL" \                       # window without tabs/address bar
   --load-extension="$PLUGIN_DIR/extension" \
   --autoplay-policy=no-user-gesture-required \
+  --password-store=gnome-libsecret \   # cookies encrypted with the GNOME keyring
   ...
 ```
+
+(`APPLE_MUSIC_DATA_DIR` exists so the tests can point the launcher at a
+throwaway profile.)
 
 **Why its own `--user-data-dir`?** Chromium runs one main process per
 profile. A separate profile gives Apple Music **its own PID**, and Chromium names its
@@ -103,10 +111,20 @@ from window titles.
 
 Other things worth noticing:
 - `uwsm-app --` — Omarchy's way of launching apps so systemd tracks them properly.
-- The `case "$1"` block (lines ~15–55) turns the launcher into a mini CLI:
-  `--pid`, `--quit`, `--queue`, `--play-index N`, `--seek S`, `--shuffle`, `--shuffle-library`.
+- The `case "${1:-}" in` block turns the launcher into a mini CLI (`bin/apple-music --help`
+  lists it all): `--probe`, `--pid`, `--quit`, `--queue`, `--play-index N`, `--seek S`,
+  `--shuffle`, `--repeat`, `--rate`, `--search`, `--play-item`, `--hide`/`--show` and more.
   The shell calls these instead of doing file/FIFO work in QML (easier to test from a terminal).
-- Lines ~60–70 write the **native-messaging host manifest** into the profile (lesson 7).
+  Every argument is checked with a strict regex before it becomes JSON (lesson 12).
+- `app_pid()` finds the browser with `pgrep -f`. The profile path is **regex-escaped
+  and anchored** (`data_re()`), so a look-alike path such as `…/omarchy-apple-music-old`
+  can never match.
+- After the `case` block (search for `NM_DIR=`) it creates the profile **owner-only
+  (`0700`)** and writes the **native-messaging host manifest** into it with `jq`
+  (lesson 7). Building JSON with `jq` instead of a heredoc means an odd path
+  can't corrupt the file.
+- A URL argument is accepted only if it starts with `https://music.apple.com/`:
+  this profile has the bridge extension loaded, so it should never open anything else.
 - If it's already running, it focuses the window instead of launching twice.
 
 > **Try it**
@@ -124,7 +142,7 @@ QML is **declarative and reactive**. You don't write "when X changes, update Y";
 you write `Y: <expression using X>` and Qt re-evaluates it automatically.
 That's the most important concept in both QML files.
 
-### 3a. Finding the player (lines 17–31)
+### 3a. Finding the player (`readonly property var player`)
 
 ```qml
 property int appPid: 0
@@ -133,7 +151,7 @@ readonly property bool running: appPid > 0
 readonly property var player: {
   if (!root.running) return null
   var suffix = ".instance" + root.appPid
-  for (...) if (name.startsWith("org.mpris.MediaPlayer2.chromium") && name.endsWith(suffix)) return p
+  for (...) if (name.indexOf("org.mpris.MediaPlayer2.chromium") === 0 && name.endsWith(suffix)) return p
   return null
 }
 ```
@@ -143,11 +161,13 @@ readonly property var player: {
 it recomputes by itself. Everything downstream (`title`, `playing`, the icon on the bar)
 follows automatically.
 
-How does `appPid` get set? A `Timer` runs `bin/apple-music --pid` through a
-`Process` every few seconds (lines 213–234). QML doesn't shell out
+How does `appPid` get set? `probeTimer` runs `bin/apple-music --probe` through
+`probeProc` every few seconds. One call answers two questions: the PID and the
+window state (`"12345 visible"`, `"12345 hidden"` or `"0 none"`), which
+`Logic.parseProbe()` turns into `appPid` and `windowState`. QML doesn't shell out
 synchronously. You set `running = true` on a `Process` and handle its output in a callback.
 
-### 3b. Controls (lines 119–154)
+### 3b. Controls (`// ---- commands` and `// ---- transport`)
 
 ```qml
 function next() { if (player && player.canGoNext) { player.next(); return true } ... }
@@ -156,7 +176,13 @@ function next() { if (player && player.canGoNext) { player.next(); return true }
 Path A is just method calls on the MPRIS object. `seekTo` is the interesting one.
 It prefers path B (`--seek` via the launcher) and falls back to MPRIS. Lesson 5 explains why.
 
-### 3c. Reading the bridge (lines 182–211)
+Path B commands all go through `run(args)`, which **queues** them in `cmdQueue`
+and runs one launcher process at a time, so fast clicks are never dropped.
+Buttons also feel instant thanks to **optimistic state**: `setPending("shuffle", true)`
+flips the button right away, and `confirmPending()` clears it once MusicKit's next
+snapshot agrees (or a 4 s timeout drops it).
+
+### 3c. Reading the bridge (the two `FileView`s)
 
 ```qml
 FileView { path: stateDir + "/queue-" + appPid + ".json"; onLoaded: root.queue = JSON.parse(text()) }
@@ -165,15 +191,18 @@ Timer    { interval: 1000; onTriggered: queueFile.reload() }
 
 The bridge writes a JSON file; the service re-reads it every second. `queue`
 is then just another property. `previousTrack`, `nextTrack` and `upcoming` are bindings on it.
+Search works the same way with `search-<pid>.json`, polled every 250 ms while a
+search is pending. Each query carries an id, and `Logic.searchSections()` ignores
+answers to older ids, so a slow reply can't overwrite a newer one.
 
-### 3d. The smooth clock (lines 236–256)
+### 3d. The smooth clock (the `Timer` above `IpcHandler`)
 
 MusicKit reports the time once per second. To avoid a jumpy display the service
 remembers **when** it read the value (`queueLoadedAt`) and adds the elapsed
 time: `pos = queue.time + (now - queueLoadedAt)`. It then clamps the value to
 `[0, length]` so the seek bar can never run past the end.
 
-### 3e. IPC — keyboard shortcuts (lines 258–286)
+### 3e. IPC — keyboard shortcuts (`IpcHandler`)
 
 ```qml
 IpcHandler {
@@ -201,7 +230,7 @@ uses them to parse command-line arguments.
 
 ## 4. `BarWidget.qml` + the view files — what you see
 
-### 4a. Getting the service (line 11)
+### 4a. Getting the service (`readonly property var am`)
 
 ```qml
 readonly property var am: bar && bar.shell ? bar.shell.serviceFor("diegohades.apple-music") : null
@@ -210,27 +239,30 @@ readonly property var am: bar && bar.shell ? bar.shell.serviceFor("diegohades.ap
 The widget holds no state of its own. It **reads** the service. `root.am.title`,
 `root.am.upcoming`, etc. are all live bindings.
 
-### 4b. The icon and scrolling title (lines 20–95)
+### 4b. The icon and scrolling title
 
-`glyphText` picks a Nerd Font glyph (`󰎆` idle, `󰏤`/`󰐊` pause/play).
+`glyphText` picks a Nerd Font glyph from `Logic.G` (`note` idle, `pause`/`play`).
+All glyphs live in `Logic.js` as code points, so `tests/logic.test.mjs` can check them.
 The title scrolls with a `NumberAnimation on x` that only runs when the text
 is wider than `maxLabelWidth` (a user setting from the manifest schema).
 
-### 4c. Mouse handling (lines 97–121)
+### 4c. Mouse handling (the `MouseArea`)
 
 One `MouseArea` over the widget: left = play/pause (or launch), middle = next,
-right = toggle popup, wheel = prev/next. Hover shows a tooltip.
+right = toggle popup, wheel = prev/next. Hover shows a tooltip, which also says
+"bridge not connected" when path B is down (lesson 6).
 
-### 4d. The popup (`BarWidget.qml` line 124–end)
+### 4d. The popup (`KeyboardPanel` in `BarWidget.qml`)
 
 `KeyboardPanel` is an Omarchy UI component (from `qs.Ui`) that can take
 keyboard focus (`PopupCard` can't, so the search field would get no typing).
 Inside, a `PanelKeyCatcher` handles single-key shortcuts and a `Column` stacks:
 
-- the search field (line ~155), always visible;
-- `SearchResults { … }` (line ~208), shown while searching;
-- `NowPlaying { … }` (line ~219): artwork row, `PanelSlider` seek bar
-  (`NowPlaying.qml` line ~96), transport and love/library/mix buttons;
+- the search field (`TextField { id: searchField`), always visible;
+- `SearchResults { … }`, shown while searching;
+- `NowPlaying { … }`: artwork row, `PanelSlider` seek bar, transport and
+  love/library/mix buttons. Artwork goes through `Logic.safeArt()`, which only
+  allows Apple's image CDN;
 - `QueuePanel { … }`, the Previous / Up next list;
 - the Show/Quit buttons.
 
@@ -239,7 +271,7 @@ Each view is its own file and gets what it needs as properties:
 `SearchResults` gets the cursor too and emits `playRequested(result, mode)`;
 `BarWidget` decides what that means (play, then close search).
 
-The queue list is a `Repeater` (`QueuePanel.qml` line ~45). Give it an array
+The queue list is a `Repeater` in `QueuePanel.qml`. Give it an array
 (`model: queueSection.am.upcoming`) and it stamps out one `QueueRow` per item.
 Each row gets `modelData` (the track) and `index`. Clicking it emits
 `activated`, and the panel calls `queueSection.am.playQueueIndex(modelData.index)`.
@@ -252,8 +284,10 @@ Colors come from the theme (`root.bar.foreground`, `Color.accent`), never hardco
 That's why it follows your Omarchy theme. The shuffle button turns `Color.accent` when on.
 
 > **Try it — your first edit**
-> In `BarWidget.qml` line 20 change the idle glyph `"󰎆"` to `"󰝚"`, save, and
-> watch the bar. Widget changes usually hot-reload. If not: `omarchy restart shell`.
+> In `Logic.js` change `note: String.fromCodePoint(0xF0386)` to `0xF075A` (󰝚), save, and
+> watch the bar. Then run `node --test tests/logic.test.mjs`: the icon test still
+> passes, because it only checks that every glyph is a single Nerd Font code point.
+> Try `0x41` ("A") instead and watch it fail. Widget changes usually hot-reload. If not: `omarchy restart shell`.
 > (In testing, **`Service.qml` changes needed `omarchy restart shell`** to take effect.)
 
 ---
@@ -294,6 +328,11 @@ Chrome extensions are sandboxed in layers, so reaching MusicKit takes three scri
 
 That's why messages hop: `page.js ⇄ window.postMessage ⇄ relay.js ⇄ chrome.runtime ⇄ background.js`.
 
+The fourth file, `core.js`, is loaded next to `page.js` but has **no DOM, no
+MusicKit and no network**: plain data in, plain data out (`snapshot()`,
+`sanitizeCommand()`, `normalizeSearch()`, the mix helpers). That's what makes
+the extension testable under Node (lesson 13).
+
 ### `extension/manifest.json`
 - `"world": "MAIN"` on `page.js` is what lets it read `window.MusicKit`.
 - `"key": "MIIB…"`: a public key. Chromium derives the **extension ID** from it
@@ -303,15 +342,21 @@ That's why messages hop: `page.js ⇄ window.postMessage ⇄ relay.js ⇄ chrome
   silently returned nothing. That was a real bug during the build.
 
 ### `extension/page.js` — the part that does the work
-- `attach()` (line ~137) waits until MusicKit exists, then subscribes to its events
+- `attach()` waits until MusicKit exists, then subscribes to its events
   (`nowPlayingItemDidChange`, `queueItemsDidChange`, …).
-- `snapshot()` (line ~56) builds the JSON you see in `queue-<pid>.json`:
-  previous, current, next 5, plus `time`, `duration`, `shuffle`, `playing`.
-- `publish()` only sends when something changed (compares JSON strings).
-- The `message` listener (line ~113) executes commands: `playIndex`, `seek`,
-  `shuffle`, `shuffleLibrary`. Every call has a timeout, because some MusicKit
-  promises never resolve (an unplayable track once hung for 3 minutes).
-- `buildMix()` (line ~35) is the library mix, explained in lesson 9.
+- `publish()` calls `core.js` `snapshot()`, which builds the JSON you see in
+  `queue-<pid>.json`: previous, current, up to 5 upcoming (including autoplay),
+  plus `time`, `duration`, `shuffle`, `repeat`, `rating`, `inLibrary`, `playing`.
+  It only sends when something changed (compares JSON strings).
+- The `message` listener passes every command through `sanitizeCommand()`, then
+  `run(cmd)` executes it: `playIndex`, `seek`, `shuffle`, `repeat`, `rate`,
+  `addToLibrary`, `search`, `playItem`, `shuffleLibrary`. Every MusicKit call has a
+  timeout (`withTimeout`), because some promises never resolve (an unplayable
+  track once hung for 3 minutes).
+- `amp()` calls Apple's web API for the things MusicKit's helper can't do
+  (ratings, add to library). It uses the page's own tokens, which never leave
+  the page: only results are published.
+- `shuffleLibrary()` is the library mix, explained in lesson 9.
 
 > **Try it**
 > ```bash
@@ -336,25 +381,37 @@ the dedicated profile, so your normal browser never sees it:
   "allowed_origins": ["chrome-extension://fjoekhebednpfbbbhbmoaldpkmimfofk/"] }
 ```
 
-### The wire format (bridge lines ~19–24 and ~60–70)
+### The wire format (`encode()` and `read_frame()`)
 Each message is **4 bytes of length (native byte order) + that many bytes of JSON**:
 
 ```python
-data = json.dumps(msg).encode()
-sys.stdout.buffer.write(struct.pack("=I", len(data)) + data)
+def encode(msg):
+    data = json.dumps(msg).encode()
+    return struct.pack("=I", len(data)) + data
 ```
+
+`read_frame()` does the reverse and refuses anything over `MAX_MESSAGE` (256 KB)
+**before** reading the body, so a bad length can't make it allocate gigabytes.
+Writes to stdout go through `Bridge.send()`, which holds a lock so two frames
+can never interleave on the stream.
 
 ### Two directions, two mechanisms
 - **Extension → shell (state):** the bridge writes `queue-<pid>.json` using
   *write to .tmp, then `os.replace`*. That's an atomic rename, so the shell never
   reads a half-written file.
 - **Shell → extension (commands):** a **FIFO** (named pipe) `commands-<pid>`.
-  A thread in the bridge blocks reading it. The launcher's `--seek` etc. write
-  one JSON line into it.
+  A thread in the bridge (`command_loop`) blocks reading it. The launcher's
+  `--seek` etc. write one JSON line into it, and `sanitize_command()` rebuilds
+  each one field by field before forwarding it.
+
+All of this lives in `$XDG_RUNTIME_DIR/omarchy-apple-music`, never `/tmp`.
+`Bridge.prepare()` creates that directory `0700`, refuses it if it's a symlink
+or owned by someone else, and replaces anything at the FIFO path that isn't a
+FIFO. When Chromium closes, `cleanup()` removes the files.
 
 ### Why `<pid>` in the filenames?
-`BROWSER_PID = os.getppid()`. The bridge's parent is Chromium, whose PID is the
-same one in the MPRIS name. During the build, a test browser and your real one
+`main()` passes `os.getppid()` to `Bridge`. The bridge's parent is Chromium,
+whose PID is the same one in the MPRIS name. During the build, a test browser and your real one
 both wrote to a shared `queue.json` and overwrote each other. Keying on PID
 made that impossible.
 
@@ -395,15 +452,21 @@ sense, you understand the whole plugin.
 Problem: the web player only puts ~50 songs from your alphabetical library into
 the queue, so shuffle gave you songs that all started with "A".
 
-`buildMix()` in `page.js`:
-1. Ask the Apple Music API for the library size (`/v1/me/library/songs?limit=1` → `meta.total`, 11,119 for you).
-2. Pick **40 random offsets** and fetch **5 songs** at each, all at once (`Promise.all`).
+`shuffleLibrary()` in `page.js`, with the pure parts in `core.js`:
+1. Ask the Apple Music API for the library size (`/v1/me/library/songs?limit=1` → `meta.total`,
+   e.g. ~11,000 songs).
+2. `pickOffsets()` picks **40 random offsets**; fetch **5 songs** at each, all at once (`Promise.all`).
    Many small pages rather than a few big ones, so you don't get runs of neighbouring
    songs (the first version used 8×25 and gave "Bitter…, Bite…, Dyers…, Dybt…").
-3. De-duplicate with a `Set`, then **Fisher–Yates shuffle**. It's the standard
-   unbiased shuffle: walk backwards, swap each item with a random earlier one.
+3. De-duplicate with a `Set`, then `shuffleInPlace()`, a **Fisher–Yates shuffle**. It's the
+   standard unbiased shuffle: walk backwards, swap each item with a random earlier one.
 4. `setQueue` with the first 25 songs (music starts in about 2 s), then
    `playLater` the rest in the background.
+5. Each mix gets a generation number (`mixGen`). If you press the button again
+   while a mix is still loading, the older one notices it's stale and stops.
+
+Both helpers take an optional `rng`, so the tests pass a fixed sequence and get
+predictable results.
 
 It also needed `--autoplay-policy=no-user-gesture-required` in the launcher.
 Chromium otherwise refuses to start audio unless you clicked *inside* the page
@@ -420,7 +483,12 @@ Chromium otherwise refuses to start audio unless you clicked *inside* the page
 | Reload the shell | `omarchy restart shell` |
 | What does MPRIS say? | `busctl --user introspect org.mpris.MediaPlayer2.chromium.instance<PID> /org/mpris/MediaPlayer2` |
 | What does the bridge see? | `bin/apple-music --queue \| jq` |
-| Inside the page | launch Chromium with `--remote-debugging-port=9335` and evaluate JS over the DevTools protocol |
+| Inside the page | open DevTools in the Apple Music window (`Ctrl+Shift+I`) and use the console |
+| Run the tests | `tests/run.sh` (lesson 13) |
+
+Avoid `--remote-debugging-port` on your real profile: anything on your machine
+can connect to that port and drive your signed-in session. If you need it, use a
+throwaway profile (`APPLE_MUSIC_DATA_DIR=$(mktemp -d) bin/apple-music`).
 
 Rule learned the hard way: **extension changes only load when the Apple Music
 window restarts; Service changes need a shell restart.** When "the fix doesn't
@@ -458,7 +526,28 @@ Notice step 5 and step 6 **both** validate (`sanitize_command` in Python,
 | Media keys | `bin/apple-music-key` → `Service.mediaKey()` → `Logic.mediaKeyTarget()` |
 | Typing in the popup | `BarWidget.qml` uses `KeyboardPanel` (not `PopupCard`) + `PanelKeyCatcher` |
 
-## 12. Tests: how to know you didn't break it
+## 12. Security: treat the page as untrusted
+
+The plugin runs unsandboxed with your permissions and talks to a web page, so
+the rule is: **nothing that comes from the page or the FIFO is trusted.**
+
+| Threat | Defence | Where |
+|---|---|---|
+| A malformed or hostile command | Strict allow-list, checked three times | launcher regexes → `sanitize_command()` → `sanitizeCommand()` |
+| Shell injection via search terms or ids | Arguments passed as arrays, never a shell string; ids must match `^[A-Za-z0-9._-]{1,64}$` | `Service.qml` `run()`, launcher `--play-item` |
+| A huge or broken message from the extension | Size limit before reading, bad JSON skipped | `read_frame()` |
+| Another user reading or swapping runtime files | Owner-only `$XDG_RUNTIME_DIR`, no `/tmp` fallback, symlinks refused | `Bridge.prepare()` |
+| Another user reading the Apple sign-in | Profile created `0700`, cookies keyring-encrypted | launcher `NM_DIR` block, `--password-store` |
+| A page-controlled image URL (tracking, local files) | Only `https://*.mzstatic.com/` artwork is shown | `Logic.safeArt()`, `core.js` `art()` |
+| Apple tokens leaking | Used only inside the page for `amp-api.music.apple.com`; never published | `page.js` `amp()` |
+| The profile opening other sites | Launcher only accepts `https://music.apple.com/` URLs | launcher `case` block |
+
+Notice the pattern: each check sits at a **boundary** where data crosses from
+one process or world into another, and the Python and JS validators are kept in
+sync by a shared fixture (`tests/fixtures/commands.json`). See also the README's
+*Security notes* and `SECURITY.md`.
+
+## 13. Tests: how to know you didn't break it
 
 ```bash
 tests/run.sh          # ~5 s, no Apple Music needed
@@ -469,25 +558,30 @@ The trick that makes testing possible: **pure logic is kept out of the
 UI and browser code.** `core.js` and `Logic.js` take plain data and return
 plain data, so Node can test them without MusicKit or Quickshell. The launcher
 test fakes a "running app" with `exec -a` (a `sleep` process whose command
-line looks like Chromium) and reads what lands in the FIFO.
+line looks like Chromium) and reads what lands in the FIFO. It also runs the
+launch path with a fake `setsid`, so it can check the profile permissions
+without starting a browser. `tests/test_bridge.py` feeds the same command
+fixture to the Python and the JS validators and requires identical answers.
 
 Exercise: add a test first, watch it fail, then make it pass.
 Try: "`--repeat` with no argument cycles" is covered, but "`setRepeat 5` is
 rejected by the shell IPC" is not. Where would you check it?
 
-## 13. Your turn: build the Autoplay toggle
+## 14. Your turn: build the Autoplay toggle
 
-MusicKit has `mk.autoplayEnabled` (similar songs after the queue ends).
-Follow the Repeat table above:
+MusicKit has `mk.autoplayEnabled` (similar songs after the queue ends), and
+`core.js` `snapshot()` already publishes it as `autoplay`. Follow the Repeat
+table above to make it controllable:
 
-0. `core.js` `snapshot()`: publish `autoplay: !!mk.autoplayEnabled` (+ a test).
 1. `core.js` `sanitizeCommand`: accept `{action:"autoplay", on:bool}` (+ a test in `tests/core.test.mjs`).
 2. `page.js` `run()`: `mk.autoplayEnabled = cmd.on`.
-3. `bin/apple-music-bridge` `sanitize_command`: same rule (+ `tests/test_bridge.py`).
+3. `bin/apple-music-bridge` `sanitize_command`: same rule (+ add cases to
+   `tests/fixtures/commands.json`, which both validators are tested against).
 4. `bin/apple-music`: `--autoplay on|off` (+ `tests/launcher.test.sh`).
 5. `Service.qml`: `readonly property bool autoplay`, `toggleAutoplay()`, IPC method.
 6. `NowPlaying.qml`: a button, accent-coloured when on. Pick a glyph with
    `fc-query` or the Nerd Fonts cheat sheet, and add it to `Logic.G` (the icon test checks it).
 7. `tests/run.sh`, restart the Apple Music window, `tests/run.sh --live`.
 
-Stuck at a step? Ask Hades for a hint on that step instead of the answer.
+Stuck at a step? Look at how Repeat does the same step, and ask for a hint on
+that step rather than the full answer.
