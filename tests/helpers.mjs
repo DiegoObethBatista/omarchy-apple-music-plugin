@@ -6,8 +6,8 @@ import path from "node:path";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-// extension/core.js is CommonJS-compatible.
-export const core = createRequire(import.meta.url)(path.join(ROOT, "extension/core.js"));
+// chromium/extension/core.js is CommonJS-compatible.
+export const core = createRequire(import.meta.url)(path.join(ROOT, "chromium/extension/core.js"));
 
 // Logic.js is a QML ".pragma library" script: strip the pragma and evaluate
 // it in this realm (so arrays/objects compare normally with deepStrictEqual).

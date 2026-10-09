@@ -57,7 +57,7 @@ class Sanitize(unittest.TestCase):
         self.assertGreater(len(cases), 40)
         js = ("const C=require(%r);const cases=%s;"
               "process.stdout.write(JSON.stringify(cases.map(c=>C.sanitizeCommand(c))))") % (
-            os.path.join(ROOT, "extension", "core.js"), json.dumps(cases))
+            os.path.join(ROOT, "chromium", "extension", "core.js"), json.dumps(cases))
         out = json.loads(subprocess.check_output(["node", "-e", js]))
         self.assertEqual(out, [bridge.sanitize_command(c) for c in cases])
 

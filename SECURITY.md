@@ -13,7 +13,7 @@ Include what you found, how to reproduce it, and the plugin version
 ## Scope
 
 In scope: the launcher (`bin/`), the native-messaging bridge, the bundled
-Chromium extension (`extension/`), and the QML widget/service.
+Chromium extension (`chromium/extension/`), and the QML widget/service.
 
 Out of scope: Apple Music itself, Chromium, and Omarchy. Report those upstream.
 

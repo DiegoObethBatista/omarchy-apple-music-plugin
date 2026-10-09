@@ -160,7 +160,7 @@ main process. Chromium publishes MPRIS as
 so only the Apple Music window is controlled.
 
 MPRIS has no queue, search or ratings, so the launcher also loads a small bundled
-extension (`extension/`, only into this dedicated profile). It uses MusicKit
+extension (`chromium/extension/`, only into this dedicated profile). It uses MusicKit
 inside the page and sends state over Chrome native messaging to
 `bin/apple-music-bridge`, which writes
 `$XDG_RUNTIME_DIR/omarchy-apple-music/queue-<PID>.json` (and `search-<PID>.json`)
@@ -192,7 +192,7 @@ One job per file:
 | `Logic.js` | Pure helpers (icons, time format, repeat cycle, search flattening), unit-tested |
 | `bin/apple-music` | Launcher + CLI (all shell quoting lives here) |
 | `bin/apple-music-bridge` | Native-messaging host between the extension and the shell |
-| `extension/` | Chromium extension that reads/controls MusicKit |
+| `chromium/extension/` | Chromium extension that reads/controls MusicKit |
 
 Views get the service (`am`) and the bar (`bar`, for theme colours and font)
 as properties and call the service directly; `BarWidget.qml` keeps the
@@ -214,7 +214,7 @@ tests/run.sh --live   # also drives the running Apple Music (undoes its own chan
 | `tests/launcher.test.sh` | The exact JSON each launcher flag sends, and that bad input is rejected |
 | `tests/live.sh` | Repeat, like/dislike, search, play next, hide/show, media keys, mix, against the real app |
 
-Pure logic lives in `extension/core.js` and `Logic.js` so it can be tested
+Pure logic lives in `chromium/extension/core.js` and `Logic.js` so it can be tested
 without a browser or the shell.
 
 ## License
