@@ -140,6 +140,28 @@ buttons can start playback without clicking inside the window first.
 Existing Apple Music windows need one restart after updating to pick up
 extension changes.
 
+## Code layout
+
+One job per file:
+
+| File | Job |
+|---|---|
+| `Service.qml` | Player state, controls, IPC (`omarchy-shell apple-music …`) |
+| `BarWidget.qml` | Bar label + mouse, popup shell: search field, keyboard shortcuts, footer buttons |
+| `NowPlaying.qml` | Popup view: artwork, title/artist/album, seek bar, transport, love/library/mix buttons |
+| `SearchResults.qml` | Popup view: search status line and result sections |
+| `QueuePanel.qml` | Popup view: Previous / Up next list |
+| `SearchRow.qml`, `QueueRow.qml` | One search result / one queue track |
+| `Logic.js` | Pure helpers (icons, time format, repeat cycle, search flattening), unit-tested |
+| `bin/apple-music` | Launcher + CLI (all shell quoting lives here) |
+| `bin/apple-music-bridge` | Native-messaging host between the extension and the shell |
+| `extension/` | Chromium extension that reads/controls MusicKit |
+
+Views get the service (`am`) and the bar (`bar`, for theme colours and font)
+as properties and call the service directly; `BarWidget.qml` keeps the
+keyboard focus logic (`PanelKeyCatcher`, search field) and decides which view
+is visible.
+
 ## Tests
 
 ```bash

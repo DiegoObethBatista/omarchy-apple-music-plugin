@@ -44,7 +44,9 @@ File map (≈1,300 lines total):
 | `manifest.json` | JSON | Tells Omarchy what the plugin is and where its entry points are |
 | `bin/apple-music` | Bash | Launcher + small command-line tool |
 | `Service.qml` | QML/JS | Headless brain: state, controls, IPC |
-| `BarWidget.qml`, `QueueRow.qml` | QML | The bar icon and popup |
+| `BarWidget.qml` | QML | The bar icon, mouse handling, popup shell (search field, keys) |
+| `NowPlaying.qml`, `SearchResults.qml`, `QueuePanel.qml` | QML | The popup's views |
+| `SearchRow.qml`, `QueueRow.qml` | QML | One search result / one queue track |
 | `extension/*` | JS | Chromium extension that reads MusicKit |
 | `bin/apple-music-bridge` | Python | Pipe between the extension and the shell |
 
@@ -197,9 +199,9 @@ uses them to parse command-line arguments.
 
 ---
 
-## 4. `BarWidget.qml` + `QueueRow.qml` — what you see
+## 4. `BarWidget.qml` + the view files — what you see
 
-### 4a. Getting the service (line 10)
+### 4a. Getting the service (line 11)
 
 ```qml
 readonly property var am: bar && bar.shell ? bar.shell.serviceFor("diegohades.apple-music") : null
@@ -208,32 +210,43 @@ readonly property var am: bar && bar.shell ? bar.shell.serviceFor("diegohades.ap
 The widget holds no state of its own. It **reads** the service. `root.am.title`,
 `root.am.upcoming`, etc. are all live bindings.
 
-### 4b. The icon and scrolling title (lines 20–79)
+### 4b. The icon and scrolling title (lines 20–95)
 
 `glyphText` picks a Nerd Font glyph (`󰎆` idle, `󰏤`/`󰐊` pause/play).
 The title scrolls with a `NumberAnimation on x` that only runs when the text
 is wider than `maxLabelWidth` (a user setting from the manifest schema).
 
-### 4c. Mouse handling (lines 81–105)
+### 4c. Mouse handling (lines 97–121)
 
 One `MouseArea` over the widget: left = play/pause (or launch), middle = next,
 right = toggle popup, wheel = prev/next. Hover shows a tooltip.
 
-### 4d. The popup (lines 107–end)
+### 4d. The popup (`BarWidget.qml` line 124–end)
 
-`PopupCard` is an Omarchy UI component (from `qs.Ui`). Inside is a `Column`
-containing the artwork row, a `PanelSlider` seek bar (line ~194), the button row
-(shuffle, library mix, prev, play, next), the **queue section** (line ~287),
-and the Show/Quit buttons.
+`KeyboardPanel` is an Omarchy UI component (from `qs.Ui`) that can take
+keyboard focus (`PopupCard` can't, so the search field would get no typing).
+Inside, a `PanelKeyCatcher` handles single-key shortcuts and a `Column` stacks:
 
-The queue list is a `Repeater` (line ~322). Give it an array (`model: root.am.upcoming`)
-and it stamps out one `QueueRow` per item. Each row gets `modelData` (the track)
-and `index`. Clicking it emits `activated`, and the popup calls
-`root.am.playQueueIndex(modelData.index)`.
+- the search field (line ~155), always visible;
+- `SearchResults { … }` (line ~208), shown while searching;
+- `NowPlaying { … }` (line ~219): artwork row, `PanelSlider` seek bar
+  (`NowPlaying.qml` line ~96), transport and love/library/mix buttons;
+- `QueuePanel { … }`, the Previous / Up next list;
+- the Show/Quit buttons.
 
-`QueueRow.qml` is a separate file, so it's a **reusable component**. Any
-`.qml` file whose name starts with a capital letter can be used as a type by
-files in the same folder.
+Each view is its own file and gets what it needs as properties:
+`am: root.am` (the service) and `bar: root.bar` (theme colours, font).
+`SearchResults` gets the cursor too and emits `playRequested(result, mode)`;
+`BarWidget` decides what that means (play, then close search).
+
+The queue list is a `Repeater` (`QueuePanel.qml` line ~45). Give it an array
+(`model: queueSection.am.upcoming`) and it stamps out one `QueueRow` per item.
+Each row gets `modelData` (the track) and `index`. Clicking it emits
+`activated`, and the panel calls `queueSection.am.playQueueIndex(modelData.index)`.
+
+Any `.qml` file whose name starts with a capital letter can be used as a type
+by files in the same folder. That's how `BarWidget.qml` uses `NowPlaying`
+and `QueuePanel` uses `QueueRow` without any import.
 
 Colors come from the theme (`root.bar.foreground`, `Color.accent`), never hardcoded.
 That's why it follows your Omarchy theme. The shuffle button turns `Color.accent` when on.
@@ -360,7 +373,7 @@ made that impossible.
 You click **"Up next → Desire"** in the popup. What happens:
 
 1. `QueueRow` MouseArea → emits `activated()`
-2. `BarWidget.qml` → `root.am.playQueueIndex(3)`
+2. `QueuePanel.qml` → `queueSection.am.playQueueIndex(3)`
 3. `Service.qml` → runs `bin/apple-music --play-index 3` via `Process`
 4. Launcher → writes `{"action":"playIndex","index":3}` into `commands-<pid>`
 5. Bridge thread reads the FIFO → sends a length-prefixed message on stdout
@@ -423,7 +436,7 @@ same path.
 
 | Step | File | Look for |
 |---|---|---|
-| 1. Button | `BarWidget.qml` | `iconText: Logic.repeatIcon(...)` → `onClicked: root.am.cycleRepeat()` |
+| 1. Button | `NowPlaying.qml` | `iconText: Logic.repeatIcon(...)` → `onClicked: root.am.cycleRepeat()` |
 | 2. Decision | `Logic.js` | `nextRepeatMode`: off (0) → all (2) → one (1) → off |
 | 3. Service | `Service.qml` | `cycleRepeat()` → `run(["--repeat", ...])` (commands queue up in `cmdQueue`) |
 | 4. Launcher | `bin/apple-music` | `--repeat)` case: validates `off\|one\|all`, writes `{"action":"repeat","mode":N}` to the FIFO |
@@ -439,7 +452,7 @@ Notice step 5 and step 6 **both** validate (`sanitize_command` in Python,
 | Feature | Key code |
 |---|---|
 | Love / Suggest less / Add to library | `page.js` `rate()`, `addToLibrary()`, `loadFacts()` (fetches the current song's rating once per song) |
-| Search | `page.js` `search()` → `core.js` `normalizeSearch()` → `search-<PID>.json` → `Logic.searchSections()` → `SearchRow.qml` |
+| Search | `page.js` `search()` → `core.js` `normalizeSearch()` → `search-<PID>.json` → `Logic.searchSections()` → `SearchResults.qml` → `SearchRow.qml` |
 | Play now / next / later | `core.js` `queueDescriptor()` + `page.js` `playItem()` (`setQueue`, `playNext`, `playLater`) |
 | Hide window | `bin/apple-music` `--hide` / `--show` (Hyprland `special:apple-music` workspace), `--probe` reports state |
 | Media keys | `bin/apple-music-key` → `Service.mediaKey()` → `Logic.mediaKeyTarget()` |
@@ -473,7 +486,7 @@ Follow the Repeat table above:
 3. `bin/apple-music-bridge` `sanitize_command`: same rule (+ `tests/test_bridge.py`).
 4. `bin/apple-music`: `--autoplay on|off` (+ `tests/launcher.test.sh`).
 5. `Service.qml`: `readonly property bool autoplay`, `toggleAutoplay()`, IPC method.
-6. `BarWidget.qml`: a button, accent-coloured when on. Pick a glyph with
+6. `NowPlaying.qml`: a button, accent-coloured when on. Pick a glyph with
    `fc-query` or the Nerd Fonts cheat sheet, and add it to `Logic.G` (the icon test checks it).
 7. `tests/run.sh`, restart the Apple Music window, `tests/run.sh --live`.
 
