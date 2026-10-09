@@ -116,6 +116,7 @@ Item {
     var next = root.cmdQueue[0]
     root.cmdQueue = root.cmdQueue.slice(1)
     cmdProc.input = next.input
+    cmdProc.stdinEnabled = next.input !== ""   // stdin only when there's something to send
     cmdProc.command = [root.launcher].concat(next.args)
     cmdProc.running = true
   }
@@ -297,8 +298,13 @@ Item {
   Process {
     id: cmdProc
     property string input: ""
-    stdinEnabled: true
-    onStarted: { write(input + "\n"); input = "" }
+    stdinEnabled: false
+    onStarted: {
+      if (!stdinEnabled) return
+      write(input + "\n")
+      input = ""
+      stdinEnabled = false   // closes stdin: the launcher sees end-of-input right away
+    }
     onExited: root.runNext()
   }
 
