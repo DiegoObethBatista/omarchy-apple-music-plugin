@@ -30,7 +30,10 @@ EOF
   exit 2
 }
 
-app_pid() { pgrep -of -- "--user-data-dir=$DATA_DIR"; }
+# pgrep/pkill -f take a regex: escape the path and anchor it so a longer path
+# that merely starts with ours (or one with a "." in it) never matches.
+data_re() { printf '%s' "--user-data-dir=$DATA_DIR" | sed 's/[][\\.*^$+?(){}|]/\\&/g'; printf '( |$)'; }
+app_pid() { pgrep -of -- "$(data_re)"; }
 
 # Hyprland address of the Apple Music window (class chrome-music.apple.com__-…).
 # Silent when Hyprland isn't reachable (tests, TTY): no window.
@@ -74,7 +77,7 @@ show_window() {
 case "${1:-}" in
   -h|--help) usage ;;
   --quit)
-    pkill -f -- "--user-data-dir=$DATA_DIR" && exit 0 || exit 1 ;;
+    pkill -f -- "$(data_re)" && exit 0 || exit 1 ;;
   --pid)
     app_pid; exit $? ;;
   --probe)
@@ -121,7 +124,7 @@ case "${1:-}" in
   --play-item)
     [[ ${2:-} =~ ^(library-)?(songs|albums|playlists)$ && ${3:-} =~ ^[A-Za-z0-9._-]{1,64}$ && ${4:-} =~ ^(now|next|later)$ ]] || usage
     send "{\"action\":\"playItem\",\"kind\":\"$2\",\"id\":\"$3\",\"mode\":\"$4\"}" ;;
-  http*) URL="$1" ;;
+  https://music.apple.com/*) URL="$1" ;;   # only Apple Music: this profile has the extension loaded
   "") ;;
   *) usage ;;
 esac
@@ -130,15 +133,10 @@ esac
 # never touches the user's regular Chromium profile.
 NM_DIR="$DATA_DIR/NativeMessagingHosts"
 mkdir -p "$NM_DIR"
-cat > "$NM_DIR/$HOST_NAME.json" <<EOF
-{
-  "name": "$HOST_NAME",
-  "description": "Omarchy Apple Music queue bridge",
-  "path": "$PLUGIN_DIR/bin/apple-music-bridge",
-  "type": "stdio",
-  "allowed_origins": ["chrome-extension://$EXT_ID/"]
-}
-EOF
+# jq builds the JSON so a path with quotes or backslashes can't corrupt it.
+jq -n --arg name "$HOST_NAME" --arg path "$PLUGIN_DIR/bin/apple-music-bridge" --arg origin "chrome-extension://$EXT_ID/" \
+  '{name: $name, description: "Omarchy Apple Music queue bridge", path: $path, type: "stdio", allowed_origins: [$origin]}' \
+  > "$NM_DIR/$HOST_NAME.json"
 
 if app_pid >/dev/null; then
   [[ -n $(window_addr) ]] && { show_window; exit 0; }

@@ -1,0 +1,201 @@
+[
+ {
+  "action": "rate",
+  "value": 1
+ },
+ {
+  "action": "rate",
+  "value": -1
+ },
+ {
+  "action": "rate",
+  "value": 0
+ },
+ {
+  "action": "rate",
+  "value": 2
+ },
+ {
+  "action": "rate",
+  "value": true
+ },
+ {
+  "action": "rate",
+  "value": 1.5
+ },
+ {
+  "action": "repeat"
+ },
+ {
+  "action": "repeat",
+  "mode": 0
+ },
+ {
+  "action": "repeat",
+  "mode": 2
+ },
+ {
+  "action": "repeat",
+  "mode": 3
+ },
+ {
+  "action": "repeat",
+  "mode": false
+ },
+ {
+  "action": "shuffle"
+ },
+ {
+  "action": "shuffle",
+  "on": true
+ },
+ {
+  "action": "shuffle",
+  "on": 1
+ },
+ {
+  "action": "seek",
+  "seconds": 0
+ },
+ {
+  "action": "seek",
+  "seconds": 86400
+ },
+ {
+  "action": "seek",
+  "seconds": 86401
+ },
+ {
+  "action": "seek",
+  "seconds": -1
+ },
+ {
+  "action": "seek",
+  "seconds": "3"
+ },
+ {
+  "action": "seek",
+  "seconds": 12.5
+ },
+ {
+  "action": "playIndex",
+  "index": 0
+ },
+ {
+  "action": "playIndex",
+  "index": 100000
+ },
+ {
+  "action": "playIndex",
+  "index": 100001
+ },
+ {
+  "action": "playIndex",
+  "index": -1
+ },
+ {
+  "action": "playIndex",
+  "index": 1.5
+ },
+ {
+  "action": "search",
+  "term": "x",
+  "id": 0
+ },
+ {
+  "action": "search",
+  "term": " a b ",
+  "id": 1000000000
+ },
+ {
+  "action": "search",
+  "term": "x",
+  "id": 1000000001
+ },
+ {
+  "action": "search",
+  "term": "   ",
+  "id": 1
+ },
+ {
+  "action": "search",
+  "term": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "id": 1
+ },
+ {
+  "action": "search",
+  "term": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "id": 1
+ },
+ {
+  "action": "search",
+  "term": "ok",
+  "id": "1"
+ },
+ {
+  "action": "search",
+  "id": 1
+ },
+ {
+  "action": "playItem",
+  "kind": "songs",
+  "id": "123",
+  "mode": "now"
+ },
+ {
+  "action": "playItem",
+  "kind": "library-albums",
+  "id": "l.x_y-1",
+  "mode": "later"
+ },
+ {
+  "action": "playItem",
+  "kind": "artists",
+  "id": "123",
+  "mode": "now"
+ },
+ {
+  "action": "playItem",
+  "kind": "songs",
+  "id": "a/b",
+  "mode": "now"
+ },
+ {
+  "action": "playItem",
+  "kind": "songs",
+  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "mode": "now"
+ },
+ {
+  "action": "playItem",
+  "kind": "songs",
+  "id": "1",
+  "mode": "shuffle"
+ },
+ {
+  "action": "playItem",
+  "kind": "songs",
+  "id": 5,
+  "mode": "now"
+ },
+ {
+  "action": "refresh"
+ },
+ {
+  "action": "shuffleLibrary",
+  "extra": 1
+ },
+ {
+  "action": "addToLibrary"
+ },
+ {
+  "action": "nope"
+ },
+ {
+  "action": 1
+ },
+ {},
+ [],
+ "x",
+ null
+]

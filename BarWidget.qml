@@ -115,6 +115,7 @@ BarWidget {
     }
     onEntered: if (root.bar) root.bar.showTooltip(root,
       !root.running ? "Apple Music — click to open"
+      : (root.am && !root.am.bridged) ? "Apple Music — bridge not connected (queue, search and seek unavailable)"
       : root.hasTrack ? (root.title + (root.artist ? " — " + root.artist : ""))
       : "Apple Music — nothing playing")
     onExited: if (root.bar) root.bar.hideTooltip(root)
