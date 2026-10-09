@@ -16,6 +16,10 @@ dedicated Chromium web app and controls it from the Omarchy bar.
 - **Previous / Up next** list from the real Apple Music queue (incl. autoplay);
   click any upcoming track to jump to it
 
+> Unofficial community plugin. Not affiliated with, endorsed by, or sponsored by
+> Apple Inc. Apple Music is a trademark of Apple Inc., used here only to describe
+> what the plugin works with. No Apple code or artwork is included.
+
 ## Install
 
 ```bash
