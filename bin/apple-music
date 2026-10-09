@@ -132,7 +132,9 @@ esac
 # Native-messaging host manifest lives inside the dedicated profile, so it
 # never touches the user's regular Chromium profile.
 NM_DIR="$DATA_DIR/NativeMessagingHosts"
-mkdir -p "$NM_DIR"
+# The profile holds the Apple Music sign-in: owner-only, like Chromium's own dirs.
+mkdir -p -m 700 "$DATA_DIR" "$NM_DIR"
+chmod 700 "$DATA_DIR"
 # jq builds the JSON so a path with quotes or backslashes can't corrupt it.
 jq -n --arg name "$HOST_NAME" --arg path "$PLUGIN_DIR/bin/apple-music-bridge" --arg origin "chrome-extension://$EXT_ID/" \
   '{name: $name, description: "Omarchy Apple Music queue bridge", path: $path, type: "stdio", allowed_origins: [$origin]}' \
@@ -147,6 +149,7 @@ exec setsid uwsm-app -- chromium \
   --app="$URL" \
   --load-extension="$PLUGIN_DIR/extension" \
   --autoplay-policy=no-user-gesture-required \
+  --password-store=gnome-libsecret \
   --ozone-platform-hint=auto \
   --enable-features=HardwareMediaKeyHandling \
   >/dev/null 2>&1
