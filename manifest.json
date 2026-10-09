@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "diegohades.apple-music",
   "name": "Apple Music",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "diegohades",
   "license": "MIT",
   "description": "Apple Music on Omarchy: launches music.apple.com as a dedicated Chromium app and controls it from the bar.",
