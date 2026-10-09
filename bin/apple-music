@@ -147,7 +147,6 @@ exec setsid uwsm-app -- chromium \
   --app="$URL" \
   --load-extension="$PLUGIN_DIR/extension" \
   --autoplay-policy=no-user-gesture-required \
-  --disable-features=DisableLoadExtensionCommandLineSwitch \
   --ozone-platform-hint=auto \
   --enable-features=HardwareMediaKeyHandling \
   >/dev/null 2>&1
