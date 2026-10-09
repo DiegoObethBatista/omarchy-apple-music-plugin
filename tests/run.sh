@@ -10,14 +10,14 @@ step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 run()  { "$@" || status=1; }
 
 step "syntax"
-run node --check extension/core.js
-run node --check extension/page.js
-run node --check extension/relay.js
-run node --check extension/background.js
+run node --check chromium/extension/core.js
+run node --check chromium/extension/page.js
+run node --check chromium/extension/relay.js
+run node --check chromium/extension/background.js
 run bash -n bin/apple-music
 run python3 -m py_compile bin/apple-music-bridge
 rm -rf bin/__pycache__
-run jq empty manifest.json extension/manifest.json
+run jq empty manifest.json chromium/extension/manifest.json
 
 step "qmllint (errors only)"
 QMLLINT=$(command -v qmllint || echo /usr/lib/qt6/bin/qmllint)

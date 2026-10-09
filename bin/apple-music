@@ -147,7 +147,7 @@ fi
 exec setsid uwsm-app -- chromium \
   --user-data-dir="$DATA_DIR" \
   --app="$URL" \
-  --load-extension="$PLUGIN_DIR/extension" \
+  --load-extension="$PLUGIN_DIR/chromium/extension" \
   --autoplay-policy=no-user-gesture-required \
   --password-store=gnome-libsecret \
   --ozone-platform-hint=auto \

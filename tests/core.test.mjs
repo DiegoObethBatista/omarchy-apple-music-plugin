@@ -1,4 +1,4 @@
-// Unit tests for extension/core.js (the logic that runs inside Apple Music).
+// Unit tests for chromium/extension/core.js (the logic that runs inside Apple Music).
 // Run: node --test tests/
 import test from "node:test";
 import assert from "node:assert/strict";

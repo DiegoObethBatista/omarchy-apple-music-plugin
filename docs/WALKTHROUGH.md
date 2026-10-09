@@ -26,7 +26,7 @@ The plugin has **two ways of talking to Apple Music**, because one wasn't enough
                                                bin/apple-music-bridge (Python)
                                                   ▲ native messaging (stdin/stdout)
                                                   ▼
-                              extension/background.js → relay.js → page.js
+                     chromium/extension/background.js → relay.js → page.js
                                                                      │
                     ┌─────────── Chromium, own profile ──────────────▼──────┐
                     │  music.apple.com   ── MusicKit JS (Apple's player) ────│
@@ -49,7 +49,7 @@ File map (≈2,200 lines of plugin code, plus tests):
 | `BarWidget.qml` | QML | The bar icon, mouse handling, popup shell (search field, keys) |
 | `NowPlaying.qml`, `SearchResults.qml`, `QueuePanel.qml` | QML | The popup's views |
 | `SearchRow.qml`, `QueueRow.qml` | QML | One search result / one queue track |
-| `extension/*` | JS | Chromium extension that reads MusicKit |
+| `chromium/extension/*` | JS | Chromium extension that reads MusicKit |
 | `bin/apple-music-bridge` | Python | Pipe between the extension and the shell |
 | `bin/apple-music-key` | Bash | Media-key entry point (Apple Music first, then the system) |
 | `Logic.js` | JS | Pure helpers for the QML side (icons, repeat cycle, parsing), unit-tested |
@@ -94,7 +94,7 @@ DATA_DIR="${APPLE_MUSIC_DATA_DIR:-$HOME/.local/share/omarchy-apple-music}"
 exec setsid uwsm-app -- chromium \
   --user-data-dir="$DATA_DIR" \        # ← the key idea
   --app="$URL" \                       # window without tabs/address bar
-  --load-extension="$PLUGIN_DIR/extension" \
+  --load-extension="$PLUGIN_DIR/chromium/extension" \
   --autoplay-policy=no-user-gesture-required \
   --password-store=gnome-libsecret \   # cookies encrypted with the GNOME keyring
   ...
@@ -333,7 +333,7 @@ MusicKit and no network**: plain data in, plain data out (`snapshot()`,
 `sanitizeCommand()`, `normalizeSearch()`, the mix helpers). That's what makes
 the extension testable under Node (lesson 13).
 
-### `extension/manifest.json`
+### `chromium/extension/manifest.json`
 - `"world": "MAIN"` on `page.js` is what lets it read `window.MusicKit`.
 - `"key": "MIIB…"`: a public key. Chromium derives the **extension ID** from it
   (first 32 hex chars of its SHA-256, with 0–f mapped to a–p). A fixed ID matters
@@ -341,7 +341,7 @@ the extension testable under Node (lesson 13).
 - `"host_permissions"` for music.apple.com. Without it `chrome.tabs.query({url})`
   silently returned nothing. That was a real bug during the build.
 
-### `extension/page.js` — the part that does the work
+### `chromium/extension/page.js` — the part that does the work
 - `attach()` waits until MusicKit exists, then subscribes to its events
   (`nowPlayingItemDidChange`, `queueItemsDidChange`, …).
 - `publish()` calls `core.js` `snapshot()`, which builds the JSON you see in
