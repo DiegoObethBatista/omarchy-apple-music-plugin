@@ -72,6 +72,17 @@ function safeArt(url) {
   return /^https:\/\/[a-z0-9-]+\.mzstatic\.com\//.test(s) ? s : ""
 }
 
+// Now-playing cover. Chromium now hands MPRIS a downloaded copy of the art
+// (file:///tmp/.org.chromium.Chromium.XXXXXX), not the page URL, so prefer the
+// bridge's Apple CDN art (upscaled), then Chromium's own temp copy.
+function nowArt(bridgeArt, mprisArt, size) {
+  var a = safeArt(bridgeArt)
+  if (a) return a.replace(/\/\d+x\d+bb\./, "/" + (size || 600) + "x" + (size || 600) + "bb.")
+  var m = String(mprisArt || "")
+  if (safeArt(m)) return m
+  return /^file:\/\/\/tmp\/\.org\.chromium\.Chromium\.[A-Za-z0-9_]+$/.test(m) ? m : ""
+}
+
 function fmtTime(sec) {
   sec = Math.max(0, Math.floor(sec || 0))
   var m = Math.floor(sec / 60), s = sec % 60

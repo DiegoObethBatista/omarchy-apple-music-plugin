@@ -50,7 +50,8 @@ Item {
   readonly property string title: player ? (player.trackTitle || "") : ""
   readonly property string artist: player ? (player.trackArtist || "") : ""
   readonly property string album: player && player.trackAlbum ? player.trackAlbum : ""
-  readonly property string artUrl: player && player.trackArtUrl ? player.trackArtUrl : ""
+  readonly property string mprisArtUrl: player && player.trackArtUrl ? player.trackArtUrl : ""
+  readonly property string artUrl: Logic.nowArt(queueInSync ? queue.current.art : "", mprisArtUrl, 600)
 
   // ---- MusicKit state from the extension --------------------------------------
   // Chromium's MPRIS reports mpris:length = INT64_MAX and a clock that spans
@@ -284,6 +285,7 @@ Item {
       title: root.title,
       artist: root.artist,
       album: root.album,
+      art: root.artUrl,
       position: Math.round(root.position),
       length: Math.round(root.length),
       shuffle: root.shuffle,
