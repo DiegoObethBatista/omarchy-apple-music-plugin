@@ -64,6 +64,17 @@ test("safeArt: Apple CDN only", () => {
   assert.equal(L.safeArt(undefined), "");
 });
 
+test("nowArt: bridge art upscaled, then Chromium temp copy, nothing else", () => {
+  const cdn = "https://is1-ssl.mzstatic.com/image/thumb/a/cover.jpg/120x120bb.jpg";
+  assert.equal(L.nowArt(cdn, "file:///tmp/.org.chromium.Chromium.MN9vFc", 600),
+    "https://is1-ssl.mzstatic.com/image/thumb/a/cover.jpg/600x600bb.jpg");
+  assert.equal(L.nowArt("", "file:///tmp/.org.chromium.Chromium.MN9vFc"), "file:///tmp/.org.chromium.Chromium.MN9vFc");
+  assert.equal(L.nowArt("", "https://is1-ssl.mzstatic.com/x.jpg"), "https://is1-ssl.mzstatic.com/x.jpg");
+  assert.equal(L.nowArt("https://evil.io/x.jpg", "file:///etc/passwd"), "");
+  assert.equal(L.nowArt("", "file:///tmp/.org.chromium.Chromium.x/../../etc/passwd"), "");
+  assert.equal(L.nowArt(undefined, undefined), "");
+});
+
 test("fmtTime", () => {
   assert.equal(L.fmtTime(0), "0:00");
   assert.equal(L.fmtTime(65.9), "1:05");

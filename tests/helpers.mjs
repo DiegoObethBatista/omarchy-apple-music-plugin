@@ -14,7 +14,7 @@ export const core = createRequire(import.meta.url)(path.join(ROOT, "chromium/ext
 export function loadLogic() {
   const src = readFileSync(path.join(ROOT, "Logic.js"), "utf8").replace(/^\.pragma library\s*$/m, "");
   const names = ["G", "repeatIcon", "repeatLabel", "nextRepeatMode", "nextRating", "mediaKeyTarget",
-                 "parseProbe", "searchSections", "flatten", "clampIndex", "safeArt", "fmtTime"];
+                 "parseProbe", "searchSections", "flatten", "clampIndex", "safeArt", "nowArt", "fmtTime"];
   return new Function(src + "\nreturn { " + names.join(", ") + " };")();
 }
 
