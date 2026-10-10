@@ -36,12 +36,12 @@ Column {
         anchors.margins: Style.space(2)
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
-        source: root.am ? Logic.safeArt(root.am.artUrl) : ""   // MPRIS art is page-controlled: Apple CDN only
+        source: root.am ? root.am.artUrl : ""   // filtered by Logic.nowArt in Service
         visible: source != ""
       }
       Text {
         anchors.centerIn: parent
-        visible: !root.am || !Logic.safeArt(root.am.artUrl)
+        visible: !root.am || !root.am.artUrl
         text: Logic.G.note
         color: root.bar.foreground
         font.family: root.bar.fontFamily
